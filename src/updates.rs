@@ -12,9 +12,7 @@ pub struct Update {
 
 /// Check for cargo updates using `cargo install --list` and crates.io
 pub fn check_cargo_updates() -> Result<Vec<Update>> {
-    let output = Command::new("cargo")
-        .args(["install", "--list"])
-        .output()?;
+    let output = Command::new("cargo").args(["install", "--list"]).output()?;
 
     if !output.status.success() {
         return Ok(Vec::new());
@@ -30,7 +28,10 @@ pub fn check_cargo_updates() -> Result<Vec<Update>> {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 {
                 let name = parts[0].to_string();
-                let version = parts[1].trim_start_matches('v').trim_end_matches(':').to_string();
+                let version = parts[1]
+                    .trim_start_matches('v')
+                    .trim_end_matches(':')
+                    .to_string();
                 current_crate = Some((name, version));
             }
         } else if current_crate.is_some() {
@@ -39,14 +40,16 @@ pub fn check_cargo_updates() -> Result<Vec<Update>> {
 
             // Query crates.io for latest version
             if let Ok(latest) = get_crates_io_version(&name)
-                && latest != current_version && version_is_newer(&latest, &current_version) {
-                    updates.push(Update {
-                        name,
-                        current: current_version,
-                        latest,
-                        source: "cargo".to_string(),
-                    });
-                }
+                && latest != current_version
+                && version_is_newer(&latest, &current_version)
+            {
+                updates.push(Update {
+                    name,
+                    current: current_version,
+                    latest,
+                    source: "cargo".to_string(),
+                });
+            }
         }
     }
 
@@ -56,7 +59,10 @@ pub fn check_cargo_updates() -> Result<Vec<Update>> {
 /// Get latest version from crates.io
 fn get_crates_io_version(crate_name: &str) -> Result<String> {
     let output = Command::new("curl")
-        .args(["-s", &format!("https://crates.io/api/v1/crates/{}", crate_name)])
+        .args([
+            "-s",
+            &format!("https://crates.io/api/v1/crates/{}", crate_name),
+        ])
         .output()?;
 
     if !output.status.success() {
@@ -77,7 +83,11 @@ pub fn check_pip_updates() -> Result<Vec<Update>> {
     let output = Command::new("pip3")
         .args(["list", "--outdated", "--format=json"])
         .output()
-        .or_else(|_| Command::new("pip").args(["list", "--outdated", "--format=json"]).output())?;
+        .or_else(|_| {
+            Command::new("pip")
+                .args(["list", "--outdated", "--format=json"])
+                .output()
+        })?;
 
     if !output.status.success() {
         return Ok(Vec::new());
@@ -121,18 +131,17 @@ pub fn check_npm_updates() -> Result<Vec<Update>> {
 
     if let Some(obj) = json.as_object() {
         for (name, info) in obj {
-            if let (Some(current), Some(latest)) = (
-                info["current"].as_str(),
-                info["latest"].as_str(),
-            )
-                && current != latest {
-                    updates.push(Update {
-                        name: name.to_string(),
-                        current: current.to_string(),
-                        latest: latest.to_string(),
-                        source: "npm".to_string(),
-                    });
-                }
+            if let (Some(current), Some(latest)) =
+                (info["current"].as_str(), info["latest"].as_str())
+                && current != latest
+            {
+                updates.push(Update {
+                    name: name.to_string(),
+                    current: current.to_string(),
+                    latest: latest.to_string(),
+                    source: "npm".to_string(),
+                });
+            }
         }
     }
 
@@ -160,15 +169,16 @@ pub fn check_apt_updates() -> Result<Vec<Update>> {
             let latest = parts[1];
             // Extract current version from "[upgradable from: x.x.x]"
             if let Some(from_idx) = parts.iter().position(|&p| p == "from:")
-                && let Some(current) = parts.get(from_idx + 1) {
-                    let current = current.trim_end_matches(']');
-                    updates.push(Update {
-                        name: name.to_string(),
-                        current: current.to_string(),
-                        latest: latest.to_string(),
-                        source: "apt".to_string(),
-                    });
-                }
+                && let Some(current) = parts.get(from_idx + 1)
+            {
+                let current = current.trim_end_matches(']');
+                updates.push(Update {
+                    name: name.to_string(),
+                    current: current.to_string(),
+                    latest: latest.to_string(),
+                    source: "apt".to_string(),
+                });
+            }
         }
     }
 
@@ -177,9 +187,7 @@ pub fn check_apt_updates() -> Result<Vec<Update>> {
 
 /// Check for brew updates using `brew outdated`
 pub fn check_brew_updates() -> Result<Vec<Update>> {
-    let output = Command::new("brew")
-        .args(["outdated", "--json"])
-        .output()?;
+    let output = Command::new("brew").args(["outdated", "--json"]).output()?;
 
     if !output.status.success() {
         return Ok(Vec::new());
@@ -192,7 +200,10 @@ pub fn check_brew_updates() -> Result<Vec<Update>> {
         for formula in formulae {
             if let (Some(name), Some(current), Some(latest)) = (
                 formula["name"].as_str(),
-                formula["installed_versions"].as_array().and_then(|v| v.first()).and_then(|v| v.as_str()),
+                formula["installed_versions"]
+                    .as_array()
+                    .and_then(|v| v.first())
+                    .and_then(|v| v.as_str()),
                 formula["current_version"].as_str(),
             ) {
                 updates.push(Update {
@@ -250,7 +261,12 @@ pub fn get_cargo_version(crate_name: &str) -> Option<String> {
         if !line.starts_with(' ') {
             let parts: Vec<&str> = line.split_whitespace().collect();
             if parts.len() >= 2 && parts[0] == crate_name {
-                return Some(parts[1].trim_start_matches('v').trim_end_matches(':').to_string());
+                return Some(
+                    parts[1]
+                        .trim_start_matches('v')
+                        .trim_end_matches(':')
+                        .to_string(),
+                );
             }
         }
     }
@@ -319,7 +335,12 @@ pub fn get_available_versions(name: &str, source: &str, current: &str) -> Vec<St
 /// Get latest version from crates.io
 pub fn get_crates_io_latest(crate_name: &str) -> Option<String> {
     let output = Command::new("curl")
-        .args(["-s", "--max-time", "5", &format!("https://crates.io/api/v1/crates/{}", crate_name)])
+        .args([
+            "-s",
+            "--max-time",
+            "5",
+            &format!("https://crates.io/api/v1/crates/{}", crate_name),
+        ])
         .output()
         .ok()?;
 
@@ -337,7 +358,12 @@ pub fn get_crates_io_latest(crate_name: &str) -> Option<String> {
 /// Get all versions from crates.io newer than the current version
 pub fn get_crates_io_versions(crate_name: &str, current: &str) -> Vec<String> {
     let output = match Command::new("curl")
-        .args(["-s", "--max-time", "5", &format!("https://crates.io/api/v1/crates/{}", crate_name)])
+        .args([
+            "-s",
+            "--max-time",
+            "5",
+            &format!("https://crates.io/api/v1/crates/{}", crate_name),
+        ])
         .output()
     {
         Ok(o) if o.status.success() => o,
@@ -378,7 +404,12 @@ pub fn get_crates_io_versions(crate_name: &str, current: &str) -> Vec<String> {
 /// Get latest version from PyPI
 pub fn get_pypi_latest(package: &str) -> Option<String> {
     let output = Command::new("curl")
-        .args(["-s", "--max-time", "5", &format!("https://pypi.org/pypi/{}/json", package)])
+        .args([
+            "-s",
+            "--max-time",
+            "5",
+            &format!("https://pypi.org/pypi/{}/json", package),
+        ])
         .output()
         .ok()?;
 
@@ -393,7 +424,12 @@ pub fn get_pypi_latest(package: &str) -> Option<String> {
 /// Get all versions from PyPI newer than the current version
 pub fn get_pypi_versions(package: &str, current: &str) -> Vec<String> {
     let output = match Command::new("curl")
-        .args(["-s", "--max-time", "5", &format!("https://pypi.org/pypi/{}/json", package)])
+        .args([
+            "-s",
+            "--max-time",
+            "5",
+            &format!("https://pypi.org/pypi/{}/json", package),
+        ])
         .output()
     {
         Ok(o) if o.status.success() => o,
@@ -549,43 +585,46 @@ pub fn check_cross_source_upgrades(tools: &[(String, String, String)]) -> Vec<Cr
         // Check cargo
         if let Some(cargo_name) = apt_to_cargo_name(name)
             && let Some(cargo_version) = get_crates_io_latest(cargo_name)
-                && version_is_newer(&cargo_version, current_version) {
-                    upgrades.push(CrossSourceUpgrade {
-                        name: name.clone(),
-                        current_version: current_version.clone(),
-                        current_source: current_source.clone(),
-                        better_version: cargo_version,
-                        better_source: "cargo".to_string(),
-                    });
-                    continue; // Found an upgrade, skip other sources
-                }
+            && version_is_newer(&cargo_version, current_version)
+        {
+            upgrades.push(CrossSourceUpgrade {
+                name: name.clone(),
+                current_version: current_version.clone(),
+                current_source: current_source.clone(),
+                better_version: cargo_version,
+                better_source: "cargo".to_string(),
+            });
+            continue; // Found an upgrade, skip other sources
+        }
 
         // Check pip
         if let Some(pip_name) = apt_to_pip_name(name)
             && let Some(pip_version) = get_pypi_latest(pip_name)
-                && version_is_newer(&pip_version, current_version) {
-                    upgrades.push(CrossSourceUpgrade {
-                        name: name.clone(),
-                        current_version: current_version.clone(),
-                        current_source: current_source.clone(),
-                        better_version: pip_version,
-                        better_source: "pip".to_string(),
-                    });
-                    continue;
-                }
+            && version_is_newer(&pip_version, current_version)
+        {
+            upgrades.push(CrossSourceUpgrade {
+                name: name.clone(),
+                current_version: current_version.clone(),
+                current_source: current_source.clone(),
+                better_version: pip_version,
+                better_source: "pip".to_string(),
+            });
+            continue;
+        }
 
         // Check npm
         if let Some(npm_name) = apt_to_npm_name(name)
             && let Some(npm_version) = get_npm_latest(npm_name)
-                && version_is_newer(&npm_version, current_version) {
-                    upgrades.push(CrossSourceUpgrade {
-                        name: name.clone(),
-                        current_version: current_version.clone(),
-                        current_source: current_source.clone(),
-                        better_version: npm_version,
-                        better_source: "npm".to_string(),
-                    });
-                }
+            && version_is_newer(&npm_version, current_version)
+        {
+            upgrades.push(CrossSourceUpgrade {
+                name: name.clone(),
+                current_version: current_version.clone(),
+                current_source: current_source.clone(),
+                better_version: npm_version,
+                better_source: "npm".to_string(),
+            });
+        }
     }
 
     upgrades

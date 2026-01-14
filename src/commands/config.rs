@@ -4,7 +4,7 @@
 
 use crate::db::Database;
 use crate::models::Config;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 use std::fs;
 use std::os::unix::fs as unix_fs;
@@ -12,10 +12,10 @@ use std::path::{Path, PathBuf};
 
 /// Expand ~ to home directory
 fn expand_path(path: &str) -> PathBuf {
-    if path.starts_with("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(&path[2..]);
-        }
+    if path.starts_with("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(&path[2..]);
     }
     PathBuf::from(path)
 }
@@ -55,7 +55,10 @@ pub fn cmd_config_link(
 ) -> Result<()> {
     // Check if config already exists
     if db.get_config_by_name(name)?.is_some() {
-        bail!("Config '{}' already exists. Use 'hoard config edit' to modify it.", name);
+        bail!(
+            "Config '{}' already exists. Use 'hoard config edit' to modify it.",
+            name
+        );
     }
 
     let target_path = expand_path(target);
@@ -63,18 +66,20 @@ pub fn cmd_config_link(
 
     // Verify source exists
     if !source_path.exists() {
-        bail!(
-            "Source path does not exist: {}",
-            source_path.display()
-        );
+        bail!("Source path does not exist: {}", source_path.display());
     }
 
     // Create the config entry
-    let mut config = Config::new(name, source_path.to_string_lossy(), target_path.to_string_lossy());
+    let mut config = Config::new(
+        name,
+        source_path.to_string_lossy(),
+        target_path.to_string_lossy(),
+    );
 
     // Link to tool if specified
     if let Some(ref tool_name) = tool {
-        let tool_entry = db.get_tool_by_name(tool_name)?
+        let tool_entry = db
+            .get_tool_by_name(tool_name)?
             .ok_or_else(|| anyhow::anyhow!("Tool '{}' not found", tool_name))?;
         config.tool_id = tool_entry.id;
     }
@@ -100,7 +105,8 @@ pub fn cmd_config_unlink(
     remove_symlink: bool,
     force: bool,
 ) -> Result<()> {
-    let config = db.get_config_by_name(name)?
+    let config = db
+        .get_config_by_name(name)?
         .ok_or_else(|| anyhow::anyhow!("Config '{}' not found", name))?;
 
     if !force {
@@ -143,7 +149,10 @@ pub fn cmd_config_list(db: &Database, broken_only: bool, format: &str) -> Result
     let configs = db.list_configs()?;
 
     if configs.is_empty() {
-        println!("No configs managed. Use {} to add one.", "hoard config link".cyan());
+        println!(
+            "No configs managed. Use {} to add one.",
+            "hoard config link".cyan()
+        );
         return Ok(());
     }
 
@@ -184,23 +193,26 @@ pub fn cmd_config_list(db: &Database, broken_only: bool, format: &str) -> Result
 
         // Truncate paths for display
         let target_display = if config.target_path.len() > 28 {
-            format!("...{}", &config.target_path[config.target_path.len()-25..])
+            format!(
+                "...{}",
+                &config.target_path[config.target_path.len() - 25..]
+            )
         } else {
             config.target_path.clone()
         };
 
         let source_display = if config.source_path.len() > 28 {
-            format!("...{}", &config.source_path[config.source_path.len()-25..])
+            format!(
+                "...{}",
+                &config.source_path[config.source_path.len() - 25..]
+            )
         } else {
             config.source_path.clone()
         };
 
         println!(
             "{:<20} {:<30} {:<30} {:<8}",
-            config.name,
-            target_display,
-            source_display,
-            status
+            config.name, target_display, source_display, status
         );
     }
 
@@ -209,7 +221,8 @@ pub fn cmd_config_list(db: &Database, broken_only: bool, format: &str) -> Result
 
 /// Show details for a specific config
 pub fn cmd_config_show(db: &Database, name: &str) -> Result<()> {
-    let config = db.get_config_by_name(name)?
+    let config = db
+        .get_config_by_name(name)?
         .ok_or_else(|| anyhow::anyhow!("Config '{}' not found", name))?;
 
     let target_path = expand_path(&config.target_path);
@@ -265,7 +278,12 @@ pub fn cmd_config_sync(db: &Database, dry_run: bool, force: bool) -> Result<()> 
 
         // Check source exists
         if !source_path.exists() {
-            println!("{} {} - source missing: {}", "✗".red(), config.name, source_path.display());
+            println!(
+                "{} {} - source missing: {}",
+                "✗".red(),
+                config.name,
+                source_path.display()
+            );
             errors += 1;
             continue;
         }
@@ -280,13 +298,16 @@ pub fn cmd_config_sync(db: &Database, dry_run: bool, force: bool) -> Result<()> 
         if target_path.exists() || target_path.is_symlink() {
             if force {
                 if dry_run {
-                    println!("{} {} - would remove existing: {}", "!".yellow(), config.name, target_path.display());
+                    println!(
+                        "{} {} - would remove existing: {}",
+                        "!".yellow(),
+                        config.name,
+                        target_path.display()
+                    );
+                } else if target_path.is_dir() && !target_path.is_symlink() {
+                    fs::remove_dir_all(&target_path)?;
                 } else {
-                    if target_path.is_dir() && !target_path.is_symlink() {
-                        fs::remove_dir_all(&target_path)?;
-                    } else {
-                        fs::remove_file(&target_path)?;
-                    }
+                    fs::remove_file(&target_path)?;
                 }
             } else {
                 println!(
@@ -301,34 +322,55 @@ pub fn cmd_config_sync(db: &Database, dry_run: bool, force: bool) -> Result<()> 
         }
 
         // Create parent directory if needed
-        if let Some(parent) = target_path.parent() {
-            if !parent.exists() {
-                if dry_run {
-                    println!("  Would create directory: {}", parent.display());
-                } else {
-                    fs::create_dir_all(parent)?;
-                }
+        if let Some(parent) = target_path.parent()
+            && !parent.exists()
+        {
+            if dry_run {
+                println!("  Would create directory: {}", parent.display());
+            } else {
+                fs::create_dir_all(parent)?;
             }
         }
 
         // Create symlink
         if dry_run {
-            println!("{} {} → {}", "→".cyan(), target_path.display(), source_path.display());
+            println!(
+                "{} {} → {}",
+                "→".cyan(),
+                target_path.display(),
+                source_path.display()
+            );
         } else {
-            unix_fs::symlink(&source_path, &target_path)
-                .with_context(|| format!("Failed to create symlink: {} → {}", target_path.display(), source_path.display()))?;
+            unix_fs::symlink(&source_path, &target_path).with_context(|| {
+                format!(
+                    "Failed to create symlink: {} → {}",
+                    target_path.display(),
+                    source_path.display()
+                )
+            })?;
 
             db.set_config_symlinked(&config.name, true)?;
-            println!("{} {} → {}", "✓".green(), config.name, target_path.display());
+            println!(
+                "{} {} → {}",
+                "✓".green(),
+                config.name,
+                target_path.display()
+            );
         }
         created += 1;
     }
 
     println!();
     if dry_run {
-        println!("Dry run: {} would be created, {} already linked, {} errors", created, skipped, errors);
+        println!(
+            "Dry run: {} would be created, {} already linked, {} errors",
+            created, skipped, errors
+        );
     } else {
-        println!("Synced: {} created, {} already linked, {} errors", created, skipped, errors);
+        println!(
+            "Synced: {} created, {} already linked, {} errors",
+            created, skipped, errors
+        );
     }
 
     Ok(())
@@ -384,7 +426,10 @@ pub fn cmd_config_status(db: &Database) -> Result<()> {
 
     if unlinked > 0 || conflicts > 0 {
         println!();
-        println!("Run {} to create missing symlinks", "hoard config sync".cyan());
+        println!(
+            "Run {} to create missing symlinks",
+            "hoard config sync".cyan()
+        );
     }
 
     Ok(())
@@ -398,7 +443,8 @@ pub fn cmd_config_edit(
     source: Option<String>,
     tool: Option<String>,
 ) -> Result<()> {
-    let config = db.get_config_by_name(name)?
+    let config = db
+        .get_config_by_name(name)?
         .ok_or_else(|| anyhow::anyhow!("Config '{}' not found", name))?;
 
     let new_source = source.unwrap_or(config.source_path.clone());

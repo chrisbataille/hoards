@@ -6,8 +6,8 @@ use anyhow::Result;
 use colored::Colorize;
 
 use crate::{
-    is_installed, Bundle, Database, InstallSource,
-    get_safe_install_command, get_safe_uninstall_command, SafeCommand,
+    Bundle, Database, InstallSource, SafeCommand, get_safe_install_command,
+    get_safe_uninstall_command, is_installed,
 };
 
 /// Create a new bundle
@@ -20,7 +20,10 @@ pub fn cmd_bundle_create(
     // Check if bundle already exists
     if db.get_bundle(name)?.is_some() {
         println!("{} Bundle '{}' already exists", "!".yellow(), name);
-        println!("  Use {} to add tools", format!("hoard bundle add {} <tools>", name).cyan());
+        println!(
+            "  Use {} to add tools",
+            format!("hoard bundle add {} <tools>", name).cyan()
+        );
         return Ok(());
     }
 
@@ -50,11 +53,7 @@ pub fn cmd_bundle_list(db: &Database) -> Result<()> {
     println!("{}", "=".repeat(40));
 
     for bundle in bundles {
-        println!(
-            "\n{} ({} tools)",
-            bundle.name.bold(),
-            bundle.tools.len()
-        );
+        println!("\n{} ({} tools)", bundle.name.bold(), bundle.tools.len());
         if let Some(desc) = &bundle.description {
             println!("  {}", desc.dimmed());
         }
@@ -121,7 +120,11 @@ pub fn cmd_bundle_install(db: &Database, name: &str, force: bool) -> Result<()> 
     }
 
     // Build install plan
-    println!("{} Install plan for bundle '{}':\n", ">".cyan(), name.bold());
+    println!(
+        "{} Install plan for bundle '{}':\n",
+        ">".cyan(),
+        name.bold()
+    );
 
     let mut to_install: Vec<(&str, String, SafeCommand)> = Vec::new(); // (name, source, command)
     let mut already_installed = 0;
@@ -138,7 +141,11 @@ pub fn cmd_bundle_install(db: &Database, name: &str, force: bool) -> Result<()> 
             .unwrap_or(tool_name);
 
         if is_installed(binary) {
-            println!("  {} {} (already installed)", "-".dimmed(), tool_name.dimmed());
+            println!(
+                "  {} {} (already installed)",
+                "-".dimmed(),
+                tool_name.dimmed()
+            );
             already_installed += 1;
             continue;
         }
@@ -147,7 +154,11 @@ pub fn cmd_bundle_install(db: &Database, name: &str, force: bool) -> Result<()> 
         let source = if let Some(ref tool) = tool_info {
             tool.source.to_string()
         } else {
-            println!("  {} {} (not in database, skipping)", "?".yellow(), tool_name);
+            println!(
+                "  {} {} (not in database, skipping)",
+                "?".yellow(),
+                tool_name
+            );
             unknown_source += 1;
             continue;
         };
@@ -159,7 +170,12 @@ pub fn cmd_bundle_install(db: &Database, name: &str, force: bool) -> Result<()> 
                 to_install.push((tool_name, source, cmd));
             }
             Ok(None) => {
-                println!("  {} {} (unknown source: {})", "?".yellow(), tool_name, source);
+                println!(
+                    "  {} {} (unknown source: {})",
+                    "?".yellow(),
+                    tool_name,
+                    source
+                );
                 unknown_source += 1;
             }
             Err(e) => {
@@ -177,7 +193,8 @@ pub fn cmd_bundle_install(db: &Database, name: &str, force: bool) -> Result<()> 
         return Ok(());
     }
 
-    println!("\n  {} to install, {} already installed, {} unknown",
+    println!(
+        "\n  {} to install, {} already installed, {} unknown",
         to_install.len().to_string().green(),
         already_installed,
         unknown_source
@@ -205,7 +222,12 @@ pub fn cmd_bundle_install(db: &Database, name: &str, force: bool) -> Result<()> 
     let mut failed = 0;
 
     for (tool_name, source, cmd) in &to_install {
-        println!("{} Installing {} from {}...", ">".cyan(), tool_name.bold(), source);
+        println!(
+            "{} Installing {} from {}...",
+            ">".cyan(),
+            tool_name.bold(),
+            source
+        );
 
         let status = cmd.execute()?;
 
@@ -222,7 +244,11 @@ pub fn cmd_bundle_install(db: &Database, name: &str, force: bool) -> Result<()> 
     println!();
     println!(
         "{} Bundle '{}': {} installed, {} failed, {} skipped",
-        if failed == 0 { "+".green() } else { "!".yellow() },
+        if failed == 0 {
+            "+".green()
+        } else {
+            "!".yellow()
+        },
         name,
         success.to_string().green(),
         failed.to_string().red(),
@@ -275,7 +301,11 @@ pub fn cmd_bundle_delete(db: &Database, name: &str, force: bool) -> Result<()> {
 
     // Confirm
     if !force {
-        print!("Delete bundle '{}' ({} tools)? [y/N] ", name, bundle.tools.len());
+        print!(
+            "Delete bundle '{}' ({} tools)? [y/N] ",
+            name,
+            bundle.tools.len()
+        );
         std::io::Write::flush(&mut std::io::stdout())?;
 
         let mut input = String::new();
@@ -310,7 +340,11 @@ pub fn cmd_bundle_update(db: &Database, name: &str, auto_yes: bool) -> Result<()
         return Ok(());
     }
 
-    println!("{} Checking updates for bundle '{}'...\n", ">".cyan(), name.bold());
+    println!(
+        "{} Checking updates for bundle '{}'...\n",
+        ">".cyan(),
+        name.bold()
+    );
 
     // Collect tools with available updates
     struct ToolUpdate {
@@ -515,7 +549,11 @@ pub fn cmd_bundle_update(db: &Database, name: &str, auto_yes: bool) -> Result<()
                 // Uninstall from old source (safe: validates input)
                 match get_safe_uninstall_command(&tool_update.name, &tool_update.source) {
                     Ok(Some(uninstall_cmd)) => {
-                        println!("  {} Uninstalling from {}...", ">".cyan(), tool_update.source);
+                        println!(
+                            "  {} Uninstalling from {}...",
+                            ">".cyan(),
+                            tool_update.source
+                        );
                         let status = uninstall_cmd.execute()?;
                         if !status.success() {
                             println!("  {} Uninstall failed, skipping", "!".red());
@@ -524,7 +562,11 @@ pub fn cmd_bundle_update(db: &Database, name: &str, auto_yes: bool) -> Result<()
                         }
                     }
                     Ok(None) => {
-                        println!("  {} Don't know how to uninstall from {}", "!".red(), tool_update.source);
+                        println!(
+                            "  {} Don't know how to uninstall from {}",
+                            "!".red(),
+                            tool_update.source
+                        );
                         skipped += 1;
                         continue;
                     }
@@ -536,19 +578,24 @@ pub fn cmd_bundle_update(db: &Database, name: &str, auto_yes: bool) -> Result<()
                 }
 
                 // Install from new source (safe: validates input)
-                let install_cmd = match get_safe_install_command(&tool_update.name, new_source, None) {
-                    Ok(Some(c)) => c,
-                    Ok(None) => {
-                        println!("  {} Don't know how to install from {}", "!".red(), new_source);
-                        skipped += 1;
-                        continue;
-                    }
-                    Err(e) => {
-                        println!("  {} Invalid input: {}", "!".red(), e);
-                        skipped += 1;
-                        continue;
-                    }
-                };
+                let install_cmd =
+                    match get_safe_install_command(&tool_update.name, new_source, None) {
+                        Ok(Some(c)) => c,
+                        Ok(None) => {
+                            println!(
+                                "  {} Don't know how to install from {}",
+                                "!".red(),
+                                new_source
+                            );
+                            skipped += 1;
+                            continue;
+                        }
+                        Err(e) => {
+                            println!("  {} Invalid input: {}", "!".red(), e);
+                            skipped += 1;
+                            continue;
+                        }
+                    };
 
                 println!("  {} Installing from {}...", ">".cyan(), new_source);
                 let status = install_cmd.execute()?;

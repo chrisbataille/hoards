@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use directories::ProjectDirs;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
 
 use crate::models::{Bundle, Config, InstallSource, Interest, Tool};
@@ -43,12 +43,10 @@ impl Database {
 
         // Ensure parent directory exists
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .context("Failed to create database directory")?;
+            std::fs::create_dir_all(parent).context("Failed to create database directory")?;
         }
 
-        let conn = Connection::open(&path)
-            .context("Failed to open database")?;
+        let conn = Connection::open(&path).context("Failed to open database")?;
 
         let db = Self { conn };
         db.init_schema()?;
@@ -243,7 +241,7 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, description, category, source, install_command,
                     binary_name, is_installed, is_favorite, notes, created_at, updated_at
-             FROM tools WHERE name = ?1"
+             FROM tools WHERE name = ?1",
         )?;
 
         let tool = stmt.query_row([name], tool_from_row);
@@ -260,7 +258,7 @@ impl Database {
         let mut query = String::from(
             "SELECT id, name, description, category, source, install_command,
                     binary_name, is_installed, is_favorite, notes, created_at, updated_at
-             FROM tools WHERE 1=1"
+             FROM tools WHERE 1=1",
         );
 
         if installed_only {
@@ -293,10 +291,12 @@ impl Database {
                     binary_name, is_installed, is_favorite, notes, created_at, updated_at
              FROM tools
              WHERE name LIKE ?1 OR description LIKE ?1 OR category LIKE ?1
-             ORDER BY name"
+             ORDER BY name",
         )?;
 
-        let tools = stmt.query_map([&pattern], tool_from_row)?.collect::<Result<Vec<_>, _>>()?;
+        let tools = stmt
+            .query_map([&pattern], tool_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(tools)
     }
@@ -313,10 +313,9 @@ impl Database {
 
     /// Delete a tool by name
     pub fn delete_tool(&self, name: &str) -> Result<bool> {
-        let rows = self.conn.execute(
-            "DELETE FROM tools WHERE name = ?1",
-            [name],
-        )?;
+        let rows = self
+            .conn
+            .execute("DELETE FROM tools WHERE name = ?1", [name])?;
 
         Ok(rows > 0)
     }
@@ -324,10 +323,11 @@ impl Database {
     /// Get all unique categories
     pub fn get_categories(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
-            "SELECT DISTINCT category FROM tools WHERE category IS NOT NULL ORDER BY category"
+            "SELECT DISTINCT category FROM tools WHERE category IS NOT NULL ORDER BY category",
         )?;
 
-        let categories = stmt.query_map([], |row| row.get(0))?
+        let categories = stmt
+            .query_map([], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(categories)
@@ -339,23 +339,29 @@ impl Database {
             "SELECT category, COUNT(*) as count FROM tools WHERE category IS NOT NULL GROUP BY category ORDER BY category"
         )?;
         let counts = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(counts)
     }
 
     /// Get tool count statistics
     pub fn get_stats(&self) -> Result<(i64, i64, i64)> {
-        let total: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM tools", [], |row| row.get(0)
-        )?;
+        let total: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM tools", [], |row| row.get(0))?;
 
         let installed: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM tools WHERE is_installed = 1", [], |row| row.get(0)
+            "SELECT COUNT(*) FROM tools WHERE is_installed = 1",
+            [],
+            |row| row.get(0),
         )?;
 
         let favorites: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM tools WHERE is_favorite = 1", [], |row| row.get(0)
+            "SELECT COUNT(*) FROM tools WHERE is_favorite = 1",
+            [],
+            |row| row.get(0),
         )?;
 
         Ok((total, installed, favorites))
@@ -384,17 +390,19 @@ impl Database {
             "SELECT id, name, description, priority, created_at FROM interests ORDER BY priority DESC, name"
         )?;
 
-        let interests = stmt.query_map([], |row| {
-            Ok(Interest {
-                id: Some(row.get(0)?),
-                name: row.get(1)?,
-                description: row.get(2)?,
-                priority: row.get(3)?,
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let interests = stmt
+            .query_map([], |row| {
+                Ok(Interest {
+                    id: Some(row.get(0)?),
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    priority: row.get(3)?,
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(4)?)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(interests)
     }
@@ -429,22 +437,24 @@ impl Database {
              FROM configs ORDER BY name"
         )?;
 
-        let configs = stmt.query_map([], |row| {
-            Ok(Config {
-                id: Some(row.get(0)?),
-                name: row.get(1)?,
-                source_path: row.get(2)?,
-                target_path: row.get(3)?,
-                tool_id: row.get(4)?,
-                is_symlinked: row.get(5)?,
-                created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now()),
-                updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(7)?)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .unwrap_or_else(|_| Utc::now()),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let configs = stmt
+            .query_map([], |row| {
+                Ok(Config {
+                    id: Some(row.get(0)?),
+                    name: row.get(1)?,
+                    source_path: row.get(2)?,
+                    target_path: row.get(3)?,
+                    tool_id: row.get(4)?,
+                    is_symlinked: row.get(5)?,
+                    created_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(6)?)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                    updated_at: DateTime::parse_from_rfc3339(&row.get::<_, String>(7)?)
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .unwrap_or_else(|_| Utc::now()),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(configs)
     }
@@ -456,18 +466,20 @@ impl Database {
              FROM configs WHERE name = ?1"
         )?;
 
-        let config = stmt.query_row([name], |row| {
-            Ok(Config {
-                id: Some(row.get(0)?),
-                name: row.get(1)?,
-                source_path: row.get(2)?,
-                target_path: row.get(3)?,
-                tool_id: row.get(4)?,
-                is_symlinked: row.get(5)?,
-                created_at: parse_datetime(row.get(6)?),
-                updated_at: parse_datetime(row.get(7)?),
+        let config = stmt
+            .query_row([name], |row| {
+                Ok(Config {
+                    id: Some(row.get(0)?),
+                    name: row.get(1)?,
+                    source_path: row.get(2)?,
+                    target_path: row.get(3)?,
+                    tool_id: row.get(4)?,
+                    is_symlinked: row.get(5)?,
+                    created_at: parse_datetime(row.get(6)?),
+                    updated_at: parse_datetime(row.get(7)?),
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(config)
     }
@@ -479,18 +491,20 @@ impl Database {
              FROM configs WHERE tool_id = ?1 ORDER BY name"
         )?;
 
-        let configs = stmt.query_map([tool_id], |row| {
-            Ok(Config {
-                id: Some(row.get(0)?),
-                name: row.get(1)?,
-                source_path: row.get(2)?,
-                target_path: row.get(3)?,
-                tool_id: row.get(4)?,
-                is_symlinked: row.get(5)?,
-                created_at: parse_datetime(row.get(6)?),
-                updated_at: parse_datetime(row.get(7)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let configs = stmt
+            .query_map([tool_id], |row| {
+                Ok(Config {
+                    id: Some(row.get(0)?),
+                    name: row.get(1)?,
+                    source_path: row.get(2)?,
+                    target_path: row.get(3)?,
+                    tool_id: row.get(4)?,
+                    is_symlinked: row.get(5)?,
+                    created_at: parse_datetime(row.get(6)?),
+                    updated_at: parse_datetime(row.get(7)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(configs)
     }
@@ -506,7 +520,12 @@ impl Database {
     }
 
     /// Update a config's paths
-    pub fn update_config_paths(&self, name: &str, source_path: &str, target_path: &str) -> Result<()> {
+    pub fn update_config_paths(
+        &self,
+        name: &str,
+        source_path: &str,
+        target_path: &str,
+    ) -> Result<()> {
         let now = Utc::now().to_rfc3339();
         self.conn.execute(
             "UPDATE configs SET source_path = ?1, target_path = ?2, updated_at = ?3 WHERE name = ?4",
@@ -517,7 +536,8 @@ impl Database {
 
     /// Link a config to a tool
     pub fn link_config_to_tool(&self, config_name: &str, tool_name: &str) -> Result<()> {
-        let tool = self.get_tool_by_name(tool_name)?
+        let tool = self
+            .get_tool_by_name(tool_name)?
             .ok_or_else(|| anyhow::anyhow!("Tool '{}' not found", tool_name))?;
 
         let now = Utc::now().to_rfc3339();
@@ -530,10 +550,9 @@ impl Database {
 
     /// Delete a config
     pub fn delete_config(&self, name: &str) -> Result<bool> {
-        let rows = self.conn.execute(
-            "DELETE FROM configs WHERE name = ?1",
-            [name],
-        )?;
+        let rows = self
+            .conn
+            .execute("DELETE FROM configs WHERE name = ?1", [name])?;
         Ok(rows > 0)
     }
 
@@ -543,7 +562,11 @@ impl Database {
     pub fn create_bundle(&self, bundle: &Bundle) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO bundles (name, description, created_at) VALUES (?1, ?2, ?3)",
-            params![bundle.name, bundle.description, bundle.created_at.to_rfc3339()],
+            params![
+                bundle.name,
+                bundle.description,
+                bundle.created_at.to_rfc3339()
+            ],
         )?;
 
         let bundle_id = self.conn.last_insert_rowid();
@@ -578,11 +601,11 @@ impl Database {
             Ok((id, name, description, created_at)) => {
                 // Get tools for this bundle
                 let mut stmt = self.conn.prepare(
-                    "SELECT tool_name FROM bundle_tools WHERE bundle_id = ?1 ORDER BY tool_name"
+                    "SELECT tool_name FROM bundle_tools WHERE bundle_id = ?1 ORDER BY tool_name",
                 )?;
-                let tools: Vec<String> = stmt
-                    .query_map([id], |row| row.get(0))?
-                    .collect::<Result<Vec<_>, _>>()?;
+                let tools: Vec<String> =
+                    stmt.query_map([id], |row| row.get(0))?
+                        .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(Some(Bundle {
                     id: Some(id),
@@ -606,7 +629,7 @@ impl Database {
             "SELECT b.id, b.name, b.description, b.created_at, bt.tool_name
              FROM bundles b
              LEFT JOIN bundle_tools bt ON b.id = bt.bundle_id
-             ORDER BY b.name, bt.tool_name"
+             ORDER BY b.name, bt.tool_name",
         )?;
 
         // Group rows by bundle
@@ -643,7 +666,9 @@ impl Database {
 
     /// Delete a bundle by name
     pub fn delete_bundle(&self, name: &str) -> Result<bool> {
-        let rows = self.conn.execute("DELETE FROM bundles WHERE name = ?1", [name])?;
+        let rows = self
+            .conn
+            .execute("DELETE FROM bundles WHERE name = ?1", [name])?;
         Ok(rows > 0)
     }
 
@@ -694,8 +719,12 @@ impl Database {
 
     /// Get all bundle names (for completions)
     pub fn get_bundle_names(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT name FROM bundles ORDER BY name")?;
-        let names = stmt.query_map([], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM bundles ORDER BY name")?;
+        let names = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(names)
     }
 
@@ -703,15 +732,16 @@ impl Database {
 
     /// Add labels to a tool
     pub fn add_labels(&self, tool_name: &str, labels: &[String]) -> Result<bool> {
-        let tool_id: i64 = match self.conn.query_row(
-            "SELECT id FROM tools WHERE name = ?1",
-            [tool_name],
-            |row| row.get(0),
-        ) {
-            Ok(id) => id,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
-            Err(e) => return Err(e.into()),
-        };
+        let tool_id: i64 =
+            match self
+                .conn
+                .query_row("SELECT id FROM tools WHERE name = ?1", [tool_name], |row| {
+                    row.get(0)
+                }) {
+                Ok(id) => id,
+                Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
+                Err(e) => return Err(e.into()),
+            };
 
         for label in labels {
             self.conn.execute(
@@ -729,26 +759,34 @@ impl Database {
             "SELECT tl.label FROM tool_labels tl
              JOIN tools t ON tl.tool_id = t.id
              WHERE t.name = ?1
-             ORDER BY tl.label"
+             ORDER BY tl.label",
         )?;
-        let labels = stmt.query_map([tool_name], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?;
+        let labels = stmt
+            .query_map([tool_name], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(labels)
     }
 
     /// Get all unique labels
     pub fn get_all_labels(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT DISTINCT label FROM tool_labels ORDER BY label")?;
-        let labels = stmt.query_map([], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT DISTINCT label FROM tool_labels ORDER BY label")?;
+        let labels = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(labels)
     }
 
     /// Get all labels with their tool counts in a single query
     pub fn get_label_counts(&self) -> Result<Vec<(String, usize)>> {
         let mut stmt = self.conn.prepare(
-            "SELECT label, COUNT(*) as count FROM tool_labels GROUP BY label ORDER BY label"
+            "SELECT label, COUNT(*) as count FROM tool_labels GROUP BY label ORDER BY label",
         )?;
         let counts = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, usize>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(counts)
     }
@@ -762,7 +800,7 @@ impl Database {
              FROM tools t
              JOIN tool_labels tl ON t.id = tl.tool_id
              WHERE tl.label = ?1
-             ORDER BY t.name"
+             ORDER BY t.name",
         )?;
 
         let tool_iter = stmt.query_map([label.to_lowercase()], tool_from_row)?;
@@ -783,15 +821,16 @@ impl Database {
 
     /// Store GitHub repo info for a tool
     pub fn set_github_info(&self, tool_name: &str, info: GitHubInfoInput<'_>) -> Result<bool> {
-        let tool_id: i64 = match self.conn.query_row(
-            "SELECT id FROM tools WHERE name = ?1",
-            [tool_name],
-            |row| row.get(0),
-        ) {
-            Ok(id) => id,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
-            Err(e) => return Err(e.into()),
-        };
+        let tool_id: i64 =
+            match self
+                .conn
+                .query_row("SELECT id FROM tools WHERE name = ?1", [tool_name], |row| {
+                    row.get(0)
+                }) {
+                Ok(id) => id,
+                Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
+                Err(e) => return Err(e.into()),
+            };
 
         self.conn.execute(
             "INSERT OR REPLACE INTO tool_github
@@ -857,9 +896,11 @@ impl Database {
             "SELECT t.name FROM tools t
              LEFT JOIN tool_github tg ON t.id = tg.tool_id
              WHERE tg.tool_id IS NULL
-             ORDER BY t.name"
+             ORDER BY t.name",
         )?;
-        let names = stmt.query_map([], |row| row.get(0))?.collect::<Result<Vec<_>, _>>()?;
+        let names = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(names)
     }
 
@@ -869,27 +910,35 @@ impl Database {
             "SELECT t.name, tg.description FROM tools t
              INNER JOIN tool_github tg ON t.id = tg.tool_id
              WHERE t.description IS NULL AND tg.description IS NOT NULL
-             ORDER BY t.name"
+             ORDER BY t.name",
         )?;
-        let results = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let results = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(results)
     }
 
     // ==================== Usage Tracking ====================
 
     /// Record tool usage (increment count or insert new record)
-    pub fn record_usage(&self, tool_name: &str, count: i64, last_used: Option<&str>) -> Result<bool> {
-        let tool_id: i64 = match self.conn.query_row(
-            "SELECT id FROM tools WHERE name = ?1",
-            [tool_name],
-            |row| row.get(0),
-        ) {
-            Ok(id) => id,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
-            Err(e) => return Err(e.into()),
-        };
+    pub fn record_usage(
+        &self,
+        tool_name: &str,
+        count: i64,
+        last_used: Option<&str>,
+    ) -> Result<bool> {
+        let tool_id: i64 =
+            match self
+                .conn
+                .query_row("SELECT id FROM tools WHERE name = ?1", [tool_name], |row| {
+                    row.get(0)
+                }) {
+                Ok(id) => id,
+                Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(false),
+                Err(e) => return Err(e.into()),
+            };
 
         let now = Utc::now().to_rfc3339();
 
@@ -915,16 +964,18 @@ impl Database {
             "SELECT tu.use_count, tu.last_used, tu.first_seen
              FROM tool_usage tu
              INNER JOIN tools t ON tu.tool_id = t.id
-             WHERE t.name = ?1"
+             WHERE t.name = ?1",
         )?;
 
-        let usage = stmt.query_row([tool_name], |row| {
-            Ok(ToolUsage {
-                use_count: row.get(0)?,
-                last_used: row.get(1)?,
-                first_seen: row.get(2)?,
+        let usage = stmt
+            .query_row([tool_name], |row| {
+                Ok(ToolUsage {
+                    use_count: row.get(0)?,
+                    last_used: row.get(1)?,
+                    first_seen: row.get(2)?,
+                })
             })
-        }).optional()?;
+            .optional()?;
 
         Ok(usage)
     }
@@ -935,32 +986,36 @@ impl Database {
             "SELECT t.name, tu.use_count, tu.last_used, tu.first_seen
              FROM tool_usage tu
              INNER JOIN tools t ON tu.tool_id = t.id
-             ORDER BY tu.use_count DESC"
+             ORDER BY tu.use_count DESC",
         )?;
 
-        let results = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                ToolUsage {
-                    use_count: row.get(1)?,
-                    last_used: row.get(2)?,
-                    first_seen: row.get(3)?,
-                }
-            ))
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let results = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    ToolUsage {
+                        use_count: row.get(1)?,
+                        last_used: row.get(2)?,
+                        first_seen: row.get(3)?,
+                    },
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(results)
     }
 
     /// Get list of tool names and their binary names for matching against history
     pub fn get_tool_binaries(&self) -> Result<Vec<(String, String)>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT name, COALESCE(binary_name, name) as binary FROM tools"
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name, COALESCE(binary_name, name) as binary FROM tools")?;
 
-        let results = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let results = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(results)
     }
@@ -1001,7 +1056,9 @@ impl Database {
              ORDER BY t.name"
         )?;
 
-        let tools = stmt.query_map([], tool_from_row)?.collect::<Result<Vec<_>, _>>()?;
+        let tools = stmt
+            .query_map([], tool_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(tools)
     }
@@ -1011,10 +1068,12 @@ impl Database {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, description, category, source, install_command,
                     binary_name, is_installed, is_favorite, notes, created_at, updated_at
-             FROM tools ORDER BY name"
+             FROM tools ORDER BY name",
         )?;
 
-        let tools = stmt.query_map([], tool_from_row)?.collect::<Result<Vec<_>, _>>()?;
+        let tools = stmt
+            .query_map([], tool_from_row)?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(tools)
     }

@@ -3,8 +3,9 @@ use clap_complete::Shell;
 
 #[derive(Parser)]
 #[command(name = "hoard")]
-#[command(about = "A tool management system with SQLite database and AI-assisted discovery")]
+#[command(about = "AI-powered CLI tool manager with usage analytics and multi-source tracking")]
 #[command(version)]
+#[command(after_help = "Use 'hoard <command> --help' for more information about a command.")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -12,6 +13,9 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    // ============================================
+    // CORE COMMANDS
+    // ============================================
     /// Add a tool to the database
     Add {
         /// Tool name
@@ -42,32 +46,7 @@ pub enum Commands {
         installed: bool,
     },
 
-    /// List tools in the database
-    List {
-        /// Show only installed tools
-        #[arg(short, long)]
-        installed: bool,
-
-        /// Filter by category
-        #[arg(short, long)]
-        category: Option<String>,
-
-        /// Filter by label
-        #[arg(short = 'L', long)]
-        label: Option<String>,
-
-        /// Output format (table, json)
-        #[arg(short, long, default_value = "table")]
-        format: String,
-    },
-
-    /// Search tools by name or description
-    Search {
-        /// Search query
-        query: String,
-    },
-
-    /// Show a specific tool
+    /// Show a specific tool's details
     Show {
         /// Tool name
         name: String,
@@ -83,62 +62,133 @@ pub enum Commands {
         force: bool,
     },
 
-    /// Scan system for installed tools and add them to database
-    Scan {
-        /// Only show what would be added (dry run)
-        #[arg(short, long)]
-        dry_run: bool,
+    /// Edit a tool's metadata interactively
+    Edit {
+        /// Tool name to edit
+        name: String,
     },
 
-    /// Sync database with system (check what's installed)
+    // ============================================
+    // SYNC - Unified sync command
+    // ============================================
+    /// Sync database with system state
+    ///
+    /// By default, only checks installation status.
+    /// Use flags to include additional sync operations.
+    #[command(after_help = "Examples:
+  hoard sync                 # Check installation status
+  hoard sync --scan          # Also discover new tools
+  hoard sync --github        # Also fetch GitHub data
+  hoard sync --usage         # Also scan shell history
+  hoard sync --all           # Do everything")]
     Sync {
         /// Only show what would change (dry run)
         #[arg(short, long)]
         dry_run: bool,
+
+        /// Also scan system for new tools
+        #[arg(long)]
+        scan: bool,
+
+        /// Also sync GitHub data (stars, topics, descriptions)
+        #[arg(long)]
+        github: bool,
+
+        /// Also scan shell history for usage data
+        #[arg(long)]
+        usage: bool,
+
+        /// Also fetch missing descriptions from registries
+        #[arg(long)]
+        descriptions: bool,
+
+        /// Perform all sync operations (scan + github + usage + descriptions)
+        #[arg(short, long)]
+        all: bool,
+
+        /// Maximum tools to process for GitHub sync
+        #[arg(long)]
+        limit: Option<usize>,
+
+        /// Delay between GitHub API calls in ms (default: 2000)
+        #[arg(long, default_value = "2000")]
+        delay: u64,
     },
 
-    /// Fetch missing descriptions from package registries (PyPI, npm, crates.io)
-    FetchDescriptions {
-        /// Only show what would be updated (dry run)
+    // ============================================
+    // DISCOVER - Tool discovery command group
+    // ============================================
+    /// Discover and explore tools
+    #[command(subcommand)]
+    Discover(DiscoverCommands),
+
+    // ============================================
+    // INSIGHTS - Analytics and health command group
+    // ============================================
+    /// View usage analytics and system health
+    #[command(subcommand)]
+    Insights(InsightsCommands),
+
+    // ============================================
+    // AI - AI-powered features
+    // ============================================
+    /// AI-powered tool management
+    #[command(subcommand)]
+    Ai(AiCommands),
+
+    // ============================================
+    // WORKFLOW COMMANDS
+    // ============================================
+    /// First-time setup wizard
+    ///
+    /// Guides you through initial setup:
+    /// 1. Scan system for installed tools
+    /// 2. Sync installation status
+    /// 3. Fetch descriptions from registries
+    /// 4. Optionally: GitHub sync, AI categorization
+    Init {
+        /// Run non-interactively with defaults
+        #[arg(long)]
+        auto: bool,
+    },
+
+    /// Daily/weekly maintenance routine
+    ///
+    /// Performs routine maintenance:
+    /// 1. Sync installation status
+    /// 2. Check for available updates
+    /// 3. Scan shell history for usage
+    /// 4. Show any health issues
+    Maintain {
+        /// Run non-interactively
+        #[arg(long)]
+        auto: bool,
+
+        /// Only show what would be done
         #[arg(short, long)]
         dry_run: bool,
     },
 
-    /// Show suggestions for tools you don't have
-    Suggest {
-        /// Filter by category
+    /// Cleanup wizard for unused tools and issues
+    ///
+    /// Helps clean up your system:
+    /// 1. Show unused installed tools
+    /// 2. Show orphaned database entries
+    /// 3. Fix health issues
+    /// 4. Optionally remove unused tools
+    Cleanup {
+        /// Skip confirmations
         #[arg(short, long)]
-        category: Option<String>,
+        force: bool,
+
+        /// Only show what would be done
+        #[arg(short, long)]
+        dry_run: bool,
     },
 
-    /// Show database statistics
-    Stats,
-
-    /// Show database file location
-    Info,
-
-    /// List all categories
-    Categories,
-
-    /// Check for available updates
-    Updates {
-        /// Filter by source (cargo, pip, npm, apt, brew)
-        #[arg(short, long)]
-        source: Option<String>,
-
-        /// Check if apt/snap tools have newer versions on other sources
-        #[arg(short = 'x', long)]
-        cross: bool,
-
-        /// Only show updates for tools tracked in hoard database
-        #[arg(short, long)]
-        tracked: bool,
-
-        /// Show all available newer versions (not just latest)
-        #[arg(short = 'a', long)]
-        all_versions: bool,
-    },
-
+    // ============================================
+    // INSTALL/UNINSTALL/UPGRADE
+    // ============================================
     /// Install a tool
     Install {
         /// Tool name to install
@@ -189,6 +239,28 @@ pub enum Commands {
         force: bool,
     },
 
+    /// Check for available updates
+    Updates {
+        /// Filter by source (cargo, pip, npm, apt, brew)
+        #[arg(short, long)]
+        source: Option<String>,
+
+        /// Check if apt/snap tools have newer versions on other sources
+        #[arg(short = 'x', long)]
+        cross: bool,
+
+        /// Only show updates for tools tracked in hoard database
+        #[arg(short, long)]
+        tracked: bool,
+
+        /// Show all available newer versions (not just latest)
+        #[arg(short = 'a', long)]
+        all_versions: bool,
+    },
+
+    // ============================================
+    // BUNDLES & CONFIG
+    // ============================================
     /// Manage tool bundles
     #[command(subcommand)]
     Bundle(BundleCommands),
@@ -197,31 +269,9 @@ pub enum Commands {
     #[command(subcommand)]
     Config(ConfigCommands),
 
-    /// Configure AI provider for smart features
-    #[command(subcommand)]
-    Ai(AiCommands),
-
-    /// GitHub integration for fetching repo info and topics
-    #[command(subcommand)]
-    Gh(GhCommands),
-
-    /// List all labels
-    Labels,
-
-    /// Track and show tool usage from shell history
-    #[command(subcommand)]
-    Usage(UsageCommands),
-
-    /// Find installed tools you never use
-    Unused,
-
-    /// Get tool recommendations based on your usage
-    Recommend {
-        /// Number of recommendations to show
-        #[arg(short, long, default_value = "5")]
-        count: usize,
-    },
-
+    // ============================================
+    // IMPORT/EXPORT
+    // ============================================
     /// Export tools database to a file
     Export {
         /// Output file path (supports .json or .toml)
@@ -251,83 +301,297 @@ pub enum Commands {
         dry_run: bool,
     },
 
-    /// Check database health and find issues
-    Doctor {
-        /// Automatically fix issues where possible
-        #[arg(short, long)]
-        fix: bool,
-    },
+    // ============================================
+    // GITHUB (power user commands)
+    // ============================================
+    /// GitHub integration (advanced)
+    #[command(subcommand)]
+    Gh(GhCommands),
 
-    /// Edit a tool's metadata interactively
-    Edit {
-        /// Tool name to edit
-        name: String,
-    },
-
+    // ============================================
+    // SHELL COMPLETIONS
+    // ============================================
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: Shell,
     },
-}
 
-#[derive(Subcommand)]
-pub enum UsageCommands {
-    /// Scan shell history and update usage counts
-    Scan {
-        /// Only show what would be recorded (dry run)
+    // ============================================
+    // ALIASES (hidden, for backward compatibility)
+    // ============================================
+    /// List tools in the database
+    #[command(hide = true)]
+    List {
+        /// Show only installed tools
         #[arg(short, long)]
-        dry_run: bool,
+        installed: bool,
 
-        /// Reset usage counts before scanning
-        #[arg(long)]
-        reset: bool,
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+
+        /// Filter by label
+        #[arg(short = 'L', long)]
+        label: Option<String>,
+
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
     },
 
+    /// Search tools by name or description
+    #[command(hide = true)]
+    Search {
+        /// Search query
+        query: String,
+    },
+
+    /// Scan system for installed tools (use 'sync --scan' instead)
+    #[command(hide = true)]
+    Scan {
+        /// Only show what would be added (dry run)
+        #[arg(short, long)]
+        dry_run: bool,
+    },
+
+    /// Fetch missing descriptions (use 'sync --descriptions' instead)
+    #[command(name = "fetch-descriptions", hide = true)]
+    FetchDescriptions {
+        /// Only show what would be updated (dry run)
+        #[arg(short, long)]
+        dry_run: bool,
+    },
+
+    /// Show suggestions (use 'discover missing' instead)
+    #[command(hide = true)]
+    Suggest {
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+    },
+
+    /// Show database statistics (use 'insights stats' instead)
+    #[command(hide = true)]
+    Stats,
+
+    /// Show database file location (use 'insights stats' instead)
+    #[command(hide = true)]
+    Info,
+
+    /// List all categories (use 'discover categories' instead)
+    #[command(hide = true)]
+    Categories,
+
+    /// List all labels (use 'discover labels' instead)
+    #[command(hide = true)]
+    Labels,
+
+    /// Track and show tool usage (use 'insights usage' instead)
+    #[command(subcommand, hide = true)]
+    Usage(UsageCommands),
+
+    /// Find unused tools (use 'insights unused' instead)
+    #[command(hide = true)]
+    Unused,
+
+    /// Get recommendations (use 'discover recommended' instead)
+    #[command(hide = true)]
+    Recommend {
+        /// Number of recommendations to show
+        #[arg(short, long, default_value = "5")]
+        count: usize,
+    },
+
+    /// Check database health (use 'insights health' instead)
+    #[command(hide = true)]
+    Doctor {
+        /// Automatically fix issues where possible
+        #[arg(short, long)]
+        fix: bool,
+    },
+}
+
+// ============================================
+// DISCOVER SUBCOMMANDS
+// ============================================
+
+#[derive(Subcommand)]
+pub enum DiscoverCommands {
+    /// List tools in the database
+    #[command(alias = "ls")]
+    List {
+        /// Show only installed tools
+        #[arg(short, long)]
+        installed: bool,
+
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+
+        /// Filter by label
+        #[arg(short = 'L', long)]
+        label: Option<String>,
+
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
+
+    /// Search tools by name or description
+    Search {
+        /// Search query
+        query: String,
+
+        /// Also search GitHub
+        #[arg(long)]
+        github: bool,
+
+        /// Maximum results for GitHub search
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+    },
+
+    /// Browse tools by category
+    Categories,
+
+    /// Browse tools by label
+    Labels,
+
+    /// Find tools you don't have from our curated list
+    Missing {
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+    },
+
+    /// Get AI-powered recommendations based on your usage
+    Recommended {
+        /// Number of recommendations to show
+        #[arg(short, long, default_value = "5")]
+        count: usize,
+    },
+
+    /// Find tools similar to one you already use
+    Similar {
+        /// Tool name to find similar tools for
+        tool: String,
+    },
+
+    /// Show trending tools by GitHub stars
+    Trending {
+        /// Filter by category
+        #[arg(short, long)]
+        category: Option<String>,
+
+        /// Number of tools to show
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+    },
+}
+
+// ============================================
+// INSIGHTS SUBCOMMANDS
+// ============================================
+
+#[derive(Subcommand)]
+pub enum InsightsCommands {
     /// Show usage statistics
-    Show {
+    Usage {
+        /// Show usage for a specific tool
+        tool: Option<String>,
+
         /// Number of top tools to show
         #[arg(short, long, default_value = "20")]
         limit: usize,
     },
 
-    /// Show usage for a specific tool
-    Tool {
-        /// Tool name
-        name: String,
+    /// Find installed tools you never use
+    Unused,
+
+    /// Check database health and find issues
+    Health {
+        /// Automatically fix issues where possible
+        #[arg(short, long)]
+        fix: bool,
     },
+
+    /// Show database statistics
+    Stats,
+
+    /// Show combined overview dashboard
+    Overview,
 }
+
+// ============================================
+// AI SUBCOMMANDS
+// ============================================
 
 #[derive(Subcommand)]
 pub enum AiCommands {
-    /// Set the AI provider to use
-    Set {
-        /// AI provider (claude, gemini, codex, opencode)
-        provider: String,
-    },
+    /// Configure AI provider
+    #[command(subcommand)]
+    Config(AiConfigCommands),
 
-    /// Show current AI configuration
-    Show,
+    /// Enrich tool data using AI
+    ///
+    /// Automatically categorize and describe tools using AI.
+    Enrich {
+        /// Categorize uncategorized tools
+        #[arg(long)]
+        categorize: bool,
 
-    /// Test AI connection
-    Test,
+        /// Generate descriptions for tools missing them
+        #[arg(long)]
+        describe: bool,
 
-    /// Auto-categorize uncategorized tools
-    Categorize {
+        /// Do both categorize and describe
+        #[arg(short, long)]
+        all: bool,
+
         /// Only show what would be changed (dry run)
         #[arg(short, long)]
         dry_run: bool,
+
+        /// Maximum number of tools to process
+        #[arg(short, long)]
+        limit: Option<usize>,
     },
 
-    /// Suggest tool bundles based on relationships
+    /// Suggest tool bundles based on your installed tools
     SuggestBundle {
         /// Number of bundle suggestions to generate
         #[arg(short, long, default_value = "5")]
         count: usize,
     },
 
-    /// Generate descriptions for tools missing them
+    // Hidden aliases for backward compatibility
+    /// Set the AI provider (use 'ai config set' instead)
+    #[command(hide = true)]
+    Set {
+        /// AI provider (claude, gemini, codex, opencode)
+        provider: String,
+    },
+
+    /// Show current AI configuration (use 'ai config show' instead)
+    #[command(name = "show", hide = true)]
+    ShowConfig,
+
+    /// Test AI connection (use 'ai config test' instead)
+    #[command(hide = true)]
+    Test,
+
+    /// Auto-categorize tools (use 'ai enrich --categorize' instead)
+    #[command(hide = true)]
+    Categorize {
+        /// Only show what would be changed (dry run)
+        #[arg(short, long)]
+        dry_run: bool,
+    },
+
+    /// Generate descriptions (use 'ai enrich --describe' instead)
+    #[command(hide = true)]
     Describe {
         /// Only show what would be changed (dry run)
         #[arg(short, long)]
@@ -340,8 +604,28 @@ pub enum AiCommands {
 }
 
 #[derive(Subcommand)]
+pub enum AiConfigCommands {
+    /// Set the AI provider to use
+    Set {
+        /// AI provider (claude, gemini, codex, opencode)
+        provider: String,
+    },
+
+    /// Show current AI configuration
+    Show,
+
+    /// Test AI connection
+    Test,
+}
+
+// ============================================
+// GITHUB SUBCOMMANDS (power user)
+// ============================================
+
+#[derive(Subcommand)]
 pub enum GhCommands {
-    /// Sync tools with GitHub (fetch topics, descriptions, stars)
+    /// Sync tools with GitHub (use 'sync --github' instead for most cases)
+    #[command(hide = true)]
     Sync {
         /// Only show what would be changed (dry run)
         #[arg(short, long)]
@@ -351,7 +635,7 @@ pub enum GhCommands {
         #[arg(short, long)]
         limit: Option<usize>,
 
-        /// Delay between API calls in milliseconds (default: 2000 for Search API limit)
+        /// Delay between API calls in milliseconds
         #[arg(long, default_value = "2000")]
         delay: u64,
     },
@@ -388,6 +672,41 @@ pub enum GhCommands {
         name: String,
     },
 }
+
+// ============================================
+// USAGE SUBCOMMANDS (hidden, use insights usage)
+// ============================================
+
+#[derive(Subcommand)]
+pub enum UsageCommands {
+    /// Scan shell history and update usage counts
+    Scan {
+        /// Only show what would be recorded (dry run)
+        #[arg(short, long)]
+        dry_run: bool,
+
+        /// Reset usage counts before scanning
+        #[arg(long)]
+        reset: bool,
+    },
+
+    /// Show usage statistics
+    Show {
+        /// Number of top tools to show
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+    },
+
+    /// Show usage for a specific tool
+    Tool {
+        /// Tool name
+        name: String,
+    },
+}
+
+// ============================================
+// BUNDLE SUBCOMMANDS
+// ============================================
 
 #[derive(Subcommand)]
 pub enum BundleCommands {
@@ -464,6 +783,10 @@ pub enum BundleCommands {
         yes: bool,
     },
 }
+
+// ============================================
+// CONFIG SUBCOMMANDS
+// ============================================
 
 #[derive(Subcommand)]
 pub enum ConfigCommands {

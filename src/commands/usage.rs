@@ -51,7 +51,11 @@ pub fn cmd_usage_scan(db: &Database, dry_run: bool, reset: bool) -> Result<()> {
         return Ok(());
     }
 
-    println!("{} Found {} unique commands in history", ">".cyan(), counts.len());
+    println!(
+        "{} Found {} unique commands in history",
+        ">".cyan(),
+        counts.len()
+    );
 
     // Get tool binaries from database for matching
     let tool_binaries = db.get_tool_binaries()?;
@@ -61,10 +65,8 @@ pub fn cmd_usage_scan(db: &Database, dry_run: bool, reset: bool) -> Result<()> {
         .collect();
 
     // Also match by tool name directly
-    let tool_names: std::collections::HashSet<String> = tool_binaries
-        .iter()
-        .map(|(name, _)| name.clone())
-        .collect();
+    let tool_names: std::collections::HashSet<String> =
+        tool_binaries.iter().map(|(name, _)| name.clone()).collect();
 
     // Reset if requested
     if reset && !dry_run {
@@ -80,9 +82,13 @@ pub fn cmd_usage_scan(db: &Database, dry_run: bool, reset: bool) -> Result<()> {
 
     for (cmd, count) in &counts {
         // Check if command matches a tool binary or name
-        let tool_name = binary_to_tool.get(cmd)
-            .cloned()
-            .or_else(|| if tool_names.contains(cmd) { Some(cmd.clone()) } else { None });
+        let tool_name = binary_to_tool.get(cmd).cloned().or_else(|| {
+            if tool_names.contains(cmd) {
+                Some(cmd.clone())
+            } else {
+                None
+            }
+        });
 
         if let Some(name) = tool_name {
             tool_counts.push((name, *count));
@@ -147,7 +153,11 @@ pub fn cmd_usage_show(db: &Database, limit: usize) -> Result<()> {
     let usage = db.get_all_usage()?;
 
     if usage.is_empty() {
-        println!("{} No usage data yet. Run {} first.", "!".yellow(), "hoard usage scan".cyan());
+        println!(
+            "{} No usage data yet. Run {} first.",
+            "!".yellow(),
+            "hoard usage scan".cyan()
+        );
         return Ok(());
     }
 
@@ -217,7 +227,10 @@ pub fn cmd_unused(db: &Database) -> Result<()> {
 
     if unused.is_empty() {
         println!("{} All installed tools have been used!", "+".green());
-        println!("  Run {} first if you haven't already", "hoard usage scan".cyan());
+        println!(
+            "  Run {} first if you haven't already",
+            "hoard usage scan".cyan()
+        );
         return Ok(());
     }
 
@@ -242,7 +255,10 @@ pub fn cmd_unused(db: &Database) -> Result<()> {
         unused.len(),
         if unused.len() == 1 { "" } else { "s" }
     );
-    println!("  Consider uninstalling with: {}", "hoard uninstall <tool>".cyan());
+    println!(
+        "  Consider uninstalling with: {}",
+        "hoard uninstall <tool>".cyan()
+    );
 
     Ok(())
 }
@@ -252,18 +268,24 @@ pub fn cmd_recommend(db: &Database, count: usize) -> Result<()> {
     let usage = db.get_all_usage()?;
 
     if usage.is_empty() {
-        println!("{} No usage data yet. Run {} first.", "!".yellow(), "hoard usage scan".cyan());
+        println!(
+            "{} No usage data yet. Run {} first.",
+            "!".yellow(),
+            "hoard usage scan".cyan()
+        );
         return Ok(());
     }
 
     // Get categories of most-used tools
-    let mut category_scores: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut category_scores: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
 
     for (name, stats) in &usage {
         if let Ok(Some(tool)) = db.get_tool_by_name(name)
-            && let Some(cat) = tool.category {
-                *category_scores.entry(cat).or_insert(0) += stats.use_count;
-            }
+            && let Some(cat) = tool.category
+        {
+            *category_scores.entry(cat).or_insert(0) += stats.use_count;
+        }
     }
 
     // Sort categories by usage
@@ -286,14 +308,20 @@ pub fn cmd_recommend(db: &Database, count: usize) -> Result<()> {
     for (category, score) in cats.iter().take(3) {
         let tools = db.list_tools(false, Some(category))?;
         for tool in tools {
-            if !tool.is_installed && !used_tools.contains(&tool.name) && recommendations.len() < count {
+            if !tool.is_installed
+                && !used_tools.contains(&tool.name)
+                && recommendations.len() < count
+            {
                 recommendations.push((tool, category.clone(), *score));
             }
         }
     }
 
     if recommendations.is_empty() {
-        println!("{} You have all the tools in your top categories!", "+".green());
+        println!(
+            "{} You have all the tools in your top categories!",
+            "+".green()
+        );
         println!("\n{} Your top categories by usage:", ">".cyan());
         for (cat, score) in cats.iter().take(5) {
             println!("  {} {:15} ({} uses)", ">".dimmed(), cat.cyan(), score);
@@ -301,15 +329,17 @@ pub fn cmd_recommend(db: &Database, count: usize) -> Result<()> {
         return Ok(());
     }
 
-    println!(
-        "{} Based on your usage, you might like:",
-        ">".cyan()
-    );
+    println!("{} Based on your usage, you might like:", ">".cyan());
     println!();
 
     for (tool, category, _) in &recommendations {
         let desc = tool.description.as_deref().unwrap_or("No description");
-        println!("  {} {} ({})", "+".green(), tool.name.cyan(), category.dimmed());
+        println!(
+            "  {} {} ({})",
+            "+".green(),
+            tool.name.cyan(),
+            category.dimmed()
+        );
         println!("    {}", desc.dimmed());
         println!();
     }

@@ -36,7 +36,10 @@ pub fn cmd_ai_set(provider: &str) -> Result<()> {
     config.save()?;
 
     println!("{} AI provider set to '{}'", "+".green(), ai_provider);
-    println!("  Config saved to: {}", HoardConfig::config_path()?.display());
+    println!(
+        "  Config saved to: {}",
+        HoardConfig::config_path()?.display()
+    );
 
     Ok(())
 }
@@ -98,9 +101,7 @@ pub fn cmd_ai_test() -> Result<()> {
     }
 
     // Try to get version or help to verify it works
-    let output = Command::new(cmd)
-        .arg("--version")
-        .output();
+    let output = Command::new(cmd).arg("--version").output();
 
     match output {
         Ok(out) if out.status.success() => {
@@ -120,7 +121,11 @@ pub fn cmd_ai_test() -> Result<()> {
                     println!("{} {} is available", "+".green(), cmd);
                 }
                 _ => {
-                    println!("{} {} found but may not be working correctly", "!".yellow(), cmd);
+                    println!(
+                        "{} {} found but may not be working correctly",
+                        "!".yellow(),
+                        cmd
+                    );
                 }
             }
         }
@@ -184,7 +189,12 @@ pub fn cmd_ai_categorize(dry_run: bool) -> Result<()> {
     println!();
     for (tool_name, category) in &categorizations {
         if dry_run {
-            println!("  {} {} -> {}", "[dry]".yellow(), tool_name, category.cyan());
+            println!(
+                "  {} {} -> {}",
+                "[dry]".yellow(),
+                tool_name,
+                category.cyan()
+            );
         } else if let Err(e) = db.update_tool_category(tool_name, category) {
             println!("  {} {} : {}", "!".red(), tool_name, e);
         } else {
@@ -227,7 +237,10 @@ pub fn cmd_ai_suggest_bundle(count: usize) -> Result<()> {
         .iter()
         .flat_map(|b| b.tools.iter().map(|s| s.as_str()))
         .collect();
-    let unbundled_count = tools.iter().filter(|t| !bundled_tools.contains(t.name.as_str())).count();
+    let unbundled_count = tools
+        .iter()
+        .filter(|t| !bundled_tools.contains(t.name.as_str()))
+        .count();
 
     if unbundled_count < 3 {
         println!(
@@ -307,7 +320,13 @@ pub fn cmd_ai_describe(dry_run: bool, limit: Option<usize>) -> Result<()> {
     let all_tools = db.list_tools(false, None)?;
     let mut no_description: Vec<_> = all_tools
         .iter()
-        .filter(|t| t.description.is_none() || t.description.as_ref().map(|d| d.is_empty()).unwrap_or(false))
+        .filter(|t| {
+            t.description.is_none()
+                || t.description
+                    .as_ref()
+                    .map(|d| d.is_empty())
+                    .unwrap_or(false)
+        })
         .cloned()
         .collect();
 

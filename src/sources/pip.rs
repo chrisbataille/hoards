@@ -1,8 +1,8 @@
 //! Pip (Python) package source
 
-use super::{http_agent, PackageSource};
+use super::{PackageSource, http_agent};
 use crate::models::{InstallSource, Tool};
-use crate::scanner::{is_installed, KNOWN_TOOLS};
+use crate::scanner::{KNOWN_TOOLS, is_installed};
 use anyhow::Result;
 use std::process::Command;
 
@@ -22,7 +22,11 @@ impl PackageSource for PipSource {
         let output = Command::new("pip3")
             .args(["list", "--format=freeze"])
             .output()
-            .or_else(|_| Command::new("pip").args(["list", "--format=freeze"]).output())?;
+            .or_else(|_| {
+                Command::new("pip")
+                    .args(["list", "--format=freeze"])
+                    .output()
+            })?;
 
         if !output.status.success() {
             return Ok(Vec::new());

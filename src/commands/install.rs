@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use std::process::Command;
 
-use crate::{is_installed, Database, InstallSource, Tool};
+use crate::{Database, InstallSource, Tool, is_installed};
 
 // ==================== Safe Command Execution ====================
 
@@ -76,9 +76,9 @@ pub fn validate_version(version: &str) -> Result<()> {
         anyhow::bail!("Version too long (max 50 characters)");
     }
     // Allow alphanumeric, dash, dot, plus (for semver build metadata)
-    let valid = version.chars().all(|c| {
-        c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+'
-    });
+    let valid = version
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '+');
     if !valid {
         anyhow::bail!(
             "Version '{}' contains invalid characters. \
@@ -97,7 +97,11 @@ pub fn get_install_command(name: &str, source: &str) -> Option<String> {
 }
 
 /// Get install command string with optional version (for display/storage)
-pub fn get_install_command_versioned(name: &str, source: &str, version: Option<&str>) -> Option<String> {
+pub fn get_install_command_versioned(
+    name: &str,
+    source: &str,
+    version: Option<&str>,
+) -> Option<String> {
     match (source, version) {
         ("cargo", Some(v)) => Some(format!("cargo install {}@{}", name, v)),
         ("cargo", None) => Some(format!("cargo install {}", name)),
@@ -114,7 +118,11 @@ pub fn get_install_command_versioned(name: &str, source: &str, version: Option<&
 }
 
 /// Get a safe install command (validates input, returns structured command)
-pub fn get_safe_install_command(name: &str, source: &str, version: Option<&str>) -> Result<Option<SafeCommand>> {
+pub fn get_safe_install_command(
+    name: &str,
+    source: &str,
+    version: Option<&str>,
+) -> Result<Option<SafeCommand>> {
     validate_package_name(name)?;
     if let Some(v) = version {
         validate_version(v)?;
@@ -238,7 +246,10 @@ pub fn cmd_install(
     // Check if already installed
     if is_installed(name) {
         println!("{} '{}' is already installed", "!".yellow(), name);
-        println!("  Use {} to update it", format!("hoard upgrade {}", name).cyan());
+        println!(
+            "  Use {} to update it",
+            format!("hoard upgrade {}", name).cyan()
+        );
         return Ok(());
     }
 
@@ -251,7 +262,10 @@ pub fn cmd_install(
     } else {
         // Tool not in database, need source argument
         println!("{} Tool '{}' not in database", "!".yellow(), name);
-        println!("  Specify a source with: hoard install {} --source <cargo|pip|npm|apt|brew|snap>", name);
+        println!(
+            "  Specify a source with: hoard install {} --source <cargo|pip|npm|apt|brew|snap>",
+            name
+        );
         return Ok(());
     };
 
@@ -259,7 +273,10 @@ pub fn cmd_install(
     let install_cmd = match get_safe_install_command(name, &install_source, version.as_deref())? {
         Some(cmd) => cmd,
         None => {
-            println!("Don't know how to install '{}' from '{}'", name, install_source);
+            println!(
+                "Don't know how to install '{}' from '{}'",
+                name, install_source
+            );
             return Ok(());
         }
     };
@@ -294,8 +311,16 @@ pub fn cmd_install(
         return Ok(());
     }
 
-    let version_msg = version.as_ref().map(|v| format!(" ({})", v)).unwrap_or_default();
-    println!("{} Installed '{}'{} successfully!", "+".green(), name, version_msg);
+    let version_msg = version
+        .as_ref()
+        .map(|v| format!(" ({})", v))
+        .unwrap_or_default();
+    println!(
+        "{} Installed '{}'{} successfully!",
+        "+".green(),
+        name,
+        version_msg
+    );
 
     // Add to database if not already there
     if db.get_tool_by_name(name)?.is_none() {
@@ -403,7 +428,10 @@ pub fn cmd_upgrade(
     let tool = match db.get_tool_by_name(name)? {
         Some(t) => t,
         None => {
-            println!("Tool '{}' not found in database. Run 'hoard scan' first.", name);
+            println!(
+                "Tool '{}' not found in database. Run 'hoard scan' first.",
+                name
+            );
             return Ok(());
         }
     };
@@ -428,7 +456,10 @@ pub fn cmd_upgrade(
     let install_cmd = match install_cmd {
         Some(cmd) => cmd,
         None => {
-            println!("Don't know how to install '{}' from '{}'", name, target_source);
+            println!(
+                "Don't know how to install '{}' from '{}'",
+                name, target_source
+            );
             return Ok(());
         }
     };
@@ -437,10 +468,22 @@ pub fn cmd_upgrade(
     println!("{} Upgrade plan for '{}':\n", ">".cyan(), name.bold());
 
     if let Some(ref uninstall) = uninstall_cmd {
-        println!("  1. Uninstall from {}: {}", current_source.red(), uninstall);
-        println!("  2. Install from {}:   {}", target_source.green(), install_cmd);
+        println!(
+            "  1. Uninstall from {}: {}",
+            current_source.red(),
+            uninstall
+        );
+        println!(
+            "  2. Install from {}:   {}",
+            target_source.green(),
+            install_cmd
+        );
     } else {
-        let action = if version.is_some() { "Install version" } else { "Update" };
+        let action = if version.is_some() {
+            "Install version"
+        } else {
+            "Update"
+        };
         println!("  {} via {}: {}", action, target_source.cyan(), install_cmd);
     }
 
@@ -482,8 +525,16 @@ pub fn cmd_upgrade(
         return Ok(());
     }
 
-    let version_msg = version.as_ref().map(|v| format!(" ({})", v)).unwrap_or_default();
-    println!("{} Upgraded '{}'{} successfully!", "+".green(), name, version_msg);
+    let version_msg = version
+        .as_ref()
+        .map(|v| format!(" ({})", v))
+        .unwrap_or_default();
+    println!(
+        "{} Upgraded '{}'{} successfully!",
+        "+".green(),
+        name,
+        version_msg
+    );
 
     // Update database if source changed
     if target_source != current_source {
@@ -493,7 +544,12 @@ pub fn cmd_upgrade(
             updated_tool.install_command = Some(cmd);
         }
         db.update_tool(&updated_tool)?;
-        println!("{} Updated database: {} -> {}", "i".cyan(), current_source, target_source);
+        println!(
+            "{} Updated database: {} -> {}",
+            "i".cyan(),
+            current_source,
+            target_source
+        );
     }
 
     Ok(())
@@ -573,42 +629,54 @@ mod tests {
 
     #[test]
     fn test_get_safe_install_command_cargo() {
-        let cmd = get_safe_install_command("ripgrep", "cargo", None).unwrap().unwrap();
+        let cmd = get_safe_install_command("ripgrep", "cargo", None)
+            .unwrap()
+            .unwrap();
         assert_eq!(cmd.program, "cargo");
         assert_eq!(cmd.args, vec!["install", "ripgrep"]);
     }
 
     #[test]
     fn test_get_safe_install_command_with_version() {
-        let cmd = get_safe_install_command("ripgrep", "cargo", Some("14.0.0")).unwrap().unwrap();
+        let cmd = get_safe_install_command("ripgrep", "cargo", Some("14.0.0"))
+            .unwrap()
+            .unwrap();
         assert_eq!(cmd.program, "cargo");
         assert_eq!(cmd.args, vec!["install", "ripgrep@14.0.0"]);
     }
 
     #[test]
     fn test_get_safe_install_command_pip() {
-        let cmd = get_safe_install_command("httpie", "pip", None).unwrap().unwrap();
+        let cmd = get_safe_install_command("httpie", "pip", None)
+            .unwrap()
+            .unwrap();
         assert_eq!(cmd.program, "pip");
         assert_eq!(cmd.args, vec!["install", "--upgrade", "httpie"]);
     }
 
     #[test]
     fn test_get_safe_install_command_apt() {
-        let cmd = get_safe_install_command("git", "apt", None).unwrap().unwrap();
+        let cmd = get_safe_install_command("git", "apt", None)
+            .unwrap()
+            .unwrap();
         assert_eq!(cmd.program, "sudo");
         assert_eq!(cmd.args, vec!["apt", "install", "-y", "git"]);
     }
 
     #[test]
     fn test_get_safe_install_command_flatpak() {
-        let cmd = get_safe_install_command("org.mozilla.firefox", "flatpak", None).unwrap().unwrap();
+        let cmd = get_safe_install_command("org.mozilla.firefox", "flatpak", None)
+            .unwrap()
+            .unwrap();
         assert_eq!(cmd.program, "flatpak");
         assert_eq!(cmd.args, vec!["install", "-y", "org.mozilla.firefox"]);
     }
 
     #[test]
     fn test_get_safe_uninstall_command_flatpak() {
-        let cmd = get_safe_uninstall_command("org.mozilla.firefox", "flatpak").unwrap().unwrap();
+        let cmd = get_safe_uninstall_command("org.mozilla.firefox", "flatpak")
+            .unwrap()
+            .unwrap();
         assert_eq!(cmd.program, "flatpak");
         assert_eq!(cmd.args, vec!["uninstall", "-y", "org.mozilla.firefox"]);
     }
@@ -620,7 +688,9 @@ mod tests {
 
     #[test]
     fn test_get_safe_uninstall_command_cargo() {
-        let cmd = get_safe_uninstall_command("ripgrep", "cargo").unwrap().unwrap();
+        let cmd = get_safe_uninstall_command("ripgrep", "cargo")
+            .unwrap()
+            .unwrap();
         assert_eq!(cmd.program, "cargo");
         assert_eq!(cmd.args, vec!["uninstall", "ripgrep"]);
     }
@@ -632,7 +702,15 @@ mod tests {
 
     #[test]
     fn test_safe_command_unknown_source() {
-        assert!(get_safe_install_command("tool", "unknown", None).unwrap().is_none());
-        assert!(get_safe_uninstall_command("tool", "unknown").unwrap().is_none());
+        assert!(
+            get_safe_install_command("tool", "unknown", None)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            get_safe_uninstall_command("tool", "unknown")
+                .unwrap()
+                .is_none()
+        );
     }
 }

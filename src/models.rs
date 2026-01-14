@@ -150,7 +150,11 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(name: impl Into<String>, source: impl Into<String>, target: impl Into<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        source: impl Into<String>,
+        target: impl Into<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: None,
@@ -286,7 +290,10 @@ mod tests {
         assert_eq!(tool.source, InstallSource::Cargo);
         assert_eq!(tool.description, Some("Fast grep replacement".to_string()));
         assert_eq!(tool.category, Some("search".to_string()));
-        assert_eq!(tool.install_command, Some("cargo install ripgrep".to_string()));
+        assert_eq!(
+            tool.install_command,
+            Some("cargo install ripgrep".to_string())
+        );
         assert_eq!(tool.binary_name, Some("rg".to_string()));
         assert!(tool.is_installed);
     }
@@ -348,8 +355,8 @@ mod tests {
 
     #[test]
     fn test_bundle_with_description() {
-        let bundle = Bundle::new("dev", vec!["cargo".to_string()])
-            .with_description("Development tools");
+        let bundle =
+            Bundle::new("dev", vec!["cargo".to_string()]).with_description("Development tools");
 
         assert_eq!(bundle.description, Some("Development tools".to_string()));
     }

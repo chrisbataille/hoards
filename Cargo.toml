@@ -5,6 +5,8 @@ edition = "2024"
 description = "A tool management system with SQLite database and AI-assisted discovery"
 authors = ["Chris Bataille"]
 license = "MIT"
+repository = "https://github.com/chrisbataille/hoard"
+homepage = "https://github.com/chrisbataille/hoard"
 
 [dependencies]
 # CLI

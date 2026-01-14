@@ -12,7 +12,12 @@ use crate::{Database, InstallSource, Tool};
 const MAX_DISPLAY_ITEMS: usize = 10;
 
 /// Export tools to JSON or TOML
-pub fn cmd_export(db: &Database, output: Option<String>, format: &str, installed_only: bool) -> Result<()> {
+pub fn cmd_export(
+    db: &Database,
+    output: Option<String>,
+    format: &str,
+    installed_only: bool,
+) -> Result<()> {
     use std::io::Write;
 
     let tools = if installed_only {
@@ -52,15 +57,18 @@ pub fn cmd_export(db: &Database, output: Option<String>, format: &str, installed
     let export = Export {
         version: "1.0".to_string(),
         exported_at: chrono::Utc::now().to_rfc3339(),
-        tools: tools.iter().map(|t| ExportTool {
-            name: t.name.clone(),
-            description: t.description.clone(),
-            category: t.category.clone(),
-            source: t.source.to_string(),
-            install_command: t.install_command.clone(),
-            binary_name: t.binary_name.clone(),
-            installed: t.is_installed,
-        }).collect(),
+        tools: tools
+            .iter()
+            .map(|t| ExportTool {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                category: t.category.clone(),
+                source: t.source.to_string(),
+                install_command: t.install_command.clone(),
+                binary_name: t.binary_name.clone(),
+                installed: t.is_installed,
+            })
+            .collect(),
     };
 
     let content = match format {
@@ -72,7 +80,10 @@ pub fn cmd_export(db: &Database, output: Option<String>, format: &str, installed
         Some(path) => {
             // Validate path to prevent directory traversal
             let path = std::path::Path::new(&path);
-            if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            if path
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
                 anyhow::bail!("Output path cannot contain '..' components");
             }
             let mut file = std::fs::File::create(path)?;
@@ -239,7 +250,11 @@ pub fn cmd_doctor(db: &Database, fix: bool) -> Result<()> {
                 db.set_tool_installed(name, false)?;
                 fixed += 1;
             }
-            println!("    {} Marked {} tools as not installed", "✓".green(), missing_binaries.len());
+            println!(
+                "    {} Marked {} tools as not installed",
+                "✓".green(),
+                missing_binaries.len()
+            );
         }
     } else {
         println!("  {} All installed tools have valid binaries", "✓".green());
@@ -247,9 +262,7 @@ pub fn cmd_doctor(db: &Database, fix: bool) -> Result<()> {
 
     // Check 2: Tools without descriptions
     println!("{}", "Checking for missing descriptions...".dimmed());
-    let no_description: Vec<_> = tools.iter()
-        .filter(|t| t.description.is_none())
-        .collect();
+    let no_description: Vec<_> = tools.iter().filter(|t| t.description.is_none()).collect();
 
     if !no_description.is_empty() {
         println!(
@@ -261,20 +274,29 @@ pub fn cmd_doctor(db: &Database, fix: bool) -> Result<()> {
             println!("    {}", tool.name);
         }
         if no_description.len() > MAX_DISPLAY_ITEMS {
-            println!("    ... and {} more", no_description.len() - MAX_DISPLAY_ITEMS);
+            println!(
+                "    ... and {} more",
+                no_description.len() - MAX_DISPLAY_ITEMS
+            );
         }
         issues_found += no_description.len();
-        println!("    {} Run {} to fetch from package registries", "?".blue(), "hoard fetch-descriptions".cyan());
-        println!("    {} Run {} to fetch from GitHub", "?".blue(), "hoard gh sync".cyan());
+        println!(
+            "    {} Run {} to fetch from package registries",
+            "?".blue(),
+            "hoard fetch-descriptions".cyan()
+        );
+        println!(
+            "    {} Run {} to fetch from GitHub",
+            "?".blue(),
+            "hoard gh sync".cyan()
+        );
     } else {
         println!("  {} All tools have descriptions", "✓".green());
     }
 
     // Check 3: Tools without categories
     println!("{}", "Checking for missing categories...".dimmed());
-    let no_category: Vec<_> = tools.iter()
-        .filter(|t| t.category.is_none())
-        .collect();
+    let no_category: Vec<_> = tools.iter().filter(|t| t.category.is_none()).collect();
 
     if !no_category.is_empty() {
         println!(
@@ -289,14 +311,19 @@ pub fn cmd_doctor(db: &Database, fix: bool) -> Result<()> {
             println!("    ... and {} more", no_category.len() - MAX_DISPLAY_ITEMS);
         }
         issues_found += no_category.len();
-        println!("    {} Run {} to auto-categorize", "?".blue(), "hoard ai categorize".cyan());
+        println!(
+            "    {} Run {} to auto-categorize",
+            "?".blue(),
+            "hoard ai categorize".cyan()
+        );
     } else {
         println!("  {} All tools have categories", "✓".green());
     }
 
     // Check 4: Tools without installation source
     println!("{}", "Checking for missing sources...".dimmed());
-    let no_source: Vec<_> = tools.iter()
+    let no_source: Vec<_> = tools
+        .iter()
         .filter(|t| matches!(t.source, InstallSource::Unknown))
         .collect();
 
@@ -332,7 +359,11 @@ pub fn cmd_doctor(db: &Database, fix: bool) -> Result<()> {
         if fix {
             db.delete_orphaned_usage()?;
             fixed += orphaned_count;
-            println!("    {} Deleted {} orphaned records", "✓".green(), orphaned_count);
+            println!(
+                "    {} Deleted {} orphaned records",
+                "✓".green(),
+                orphaned_count
+            );
         }
     } else {
         println!("  {} No orphaned usage records", "✓".green());
@@ -340,12 +371,17 @@ pub fn cmd_doctor(db: &Database, fix: bool) -> Result<()> {
 
     // Check 6: Duplicate binaries (different tools pointing to same binary)
     println!("{}", "Checking for duplicate binaries...".dimmed());
-    let mut binary_map: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut binary_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
     for tool in &tools {
         let binary = tool.binary_name.as_ref().unwrap_or(&tool.name).clone();
-        binary_map.entry(binary).or_default().push(tool.name.clone());
+        binary_map
+            .entry(binary)
+            .or_default()
+            .push(tool.name.clone());
     }
-    let duplicates: Vec<_> = binary_map.iter()
+    let duplicates: Vec<_> = binary_map
+        .iter()
         .filter(|(_, names)| names.len() > 1)
         .collect();
 
@@ -366,16 +402,28 @@ pub fn cmd_doctor(db: &Database, fix: bool) -> Result<()> {
     // Summary
     println!();
     if issues_found == 0 {
-        println!("{} {}", "✓".green().bold(), "Database is healthy!".green().bold());
+        println!(
+            "{} {}",
+            "✓".green().bold(),
+            "Database is healthy!".green().bold()
+        );
     } else {
         println!(
             "{} {} issues found{}",
             "!".yellow().bold(),
             issues_found,
-            if fix { format!(", {} fixed", fixed) } else { String::new() }
+            if fix {
+                format!(", {} fixed", fixed)
+            } else {
+                String::new()
+            }
         );
         if !fix && fixed < issues_found {
-            println!("  {} Run {} to auto-fix some issues", "?".blue(), "hoard doctor --fix".cyan());
+            println!(
+                "  {} Run {} to auto-fix some issues",
+                "?".blue(),
+                "hoard doctor --fix".cyan()
+            );
         }
     }
 
@@ -411,7 +459,11 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
         .collect();
 
     let current_cat_idx = if let Some(ref cat) = tool.category {
-        categories.iter().position(|c| c == cat).map(|i| i + 1).unwrap_or(0)
+        categories
+            .iter()
+            .position(|c| c == cat)
+            .map(|i| i + 1)
+            .unwrap_or(0)
     } else {
         0
     };
@@ -429,14 +481,23 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
         let custom: String = Input::new()
             .with_prompt("New category name")
             .interact_text()?;
-        if custom.is_empty() { None } else { Some(custom) }
+        if custom.is_empty() {
+            None
+        } else {
+            Some(custom)
+        }
     } else {
         Some(categories[cat_selection - 1].clone())
     };
 
-    let sources = ["cargo", "pip", "npm", "apt", "brew", "snap", "manual", "unknown"];
+    let sources = [
+        "cargo", "pip", "npm", "apt", "brew", "snap", "manual", "unknown",
+    ];
     let current_src_str = tool.source.to_string();
-    let current_src_idx = sources.iter().position(|s| *s == current_src_str).unwrap_or(sources.len() - 1);
+    let current_src_idx = sources
+        .iter()
+        .position(|s| *s == current_src_str)
+        .unwrap_or(sources.len() - 1);
 
     let src_selection = Select::new()
         .with_prompt("Installation source")
@@ -469,9 +530,14 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
 
     let mut changes = Vec::new();
 
-    let new_desc_opt = if new_description.is_empty() { None } else { Some(new_description.clone()) };
+    let new_desc_opt = if new_description.is_empty() {
+        None
+    } else {
+        Some(new_description.clone())
+    };
     if new_desc_opt != tool.description {
-        println!("  {} Description: {} -> {}",
+        println!(
+            "  {} Description: {} -> {}",
             "~".yellow(),
             tool.description.as_deref().unwrap_or("(none)").dimmed(),
             new_desc_opt.as_deref().unwrap_or("(none)")
@@ -480,7 +546,8 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
     }
 
     if new_category != tool.category {
-        println!("  {} Category: {} -> {}",
+        println!(
+            "  {} Category: {} -> {}",
             "~".yellow(),
             tool.category.as_deref().unwrap_or("(none)").dimmed(),
             new_category.as_deref().unwrap_or("(none)")
@@ -489,7 +556,8 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
     }
 
     if new_source != tool.source {
-        println!("  {} Source: {} -> {}",
+        println!(
+            "  {} Source: {} -> {}",
             "~".yellow(),
             tool.source.to_string().dimmed(),
             new_source
@@ -497,9 +565,14 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
         changes.push("source");
     }
 
-    let new_binary_opt = if new_binary.is_empty() { None } else { Some(new_binary.clone()) };
+    let new_binary_opt = if new_binary.is_empty() {
+        None
+    } else {
+        Some(new_binary.clone())
+    };
     if new_binary_opt != tool.binary_name {
-        println!("  {} Binary: {} -> {}",
+        println!(
+            "  {} Binary: {} -> {}",
             "~".yellow(),
             tool.binary_name.as_deref().unwrap_or("(none)").dimmed(),
             new_binary_opt.as_deref().unwrap_or("(none)")
@@ -507,9 +580,14 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
         changes.push("binary");
     }
 
-    let new_cmd_opt = if new_install_cmd.is_empty() { None } else { Some(new_install_cmd.clone()) };
+    let new_cmd_opt = if new_install_cmd.is_empty() {
+        None
+    } else {
+        Some(new_install_cmd.clone())
+    };
     if new_cmd_opt != tool.install_command {
-        println!("  {} Install cmd: {} -> {}",
+        println!(
+            "  {} Install cmd: {} -> {}",
             "~".yellow(),
             tool.install_command.as_deref().unwrap_or("(none)").dimmed(),
             new_cmd_opt.as_deref().unwrap_or("(none)")
@@ -518,7 +596,8 @@ pub fn cmd_edit(db: &Database, name: &str) -> Result<()> {
     }
 
     if new_installed != tool.is_installed {
-        println!("  {} Installed: {} -> {}",
+        println!(
+            "  {} Installed: {} -> {}",
             "~".yellow(),
             tool.is_installed.to_string().dimmed(),
             new_installed

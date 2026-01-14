@@ -94,15 +94,16 @@ pub fn parse_zsh_history(path: &PathBuf) -> Result<Vec<HistoryEntry>> {
         .map(|line| {
             // Try to parse extended format: `: <timestamp>:<duration>;<command>`
             if line.starts_with(": ")
-                && let Some(semicolon_pos) = line.find(';') {
-                    let metadata = &line[2..semicolon_pos];
-                    let command = &line[semicolon_pos + 1..];
-                    let timestamp = metadata.split(':').next().and_then(|s| s.parse().ok());
-                    return HistoryEntry {
-                        command: command.to_string(),
-                        timestamp,
-                    };
-                }
+                && let Some(semicolon_pos) = line.find(';')
+            {
+                let metadata = &line[2..semicolon_pos];
+                let command = &line[semicolon_pos + 1..];
+                let timestamp = metadata.split(':').next().and_then(|s| s.parse().ok());
+                return HistoryEntry {
+                    command: command.to_string(),
+                    timestamp,
+                };
+            }
             // Simple format
             HistoryEntry {
                 command: line.to_string(),
@@ -139,10 +140,9 @@ pub fn extract_command(line: &str) -> Option<&str> {
 
     // Skip shell builtins and common non-tools
     let skip = [
-        "cd", "ls", "echo", "export", "set", "unset", "alias", "source",
-        "if", "then", "else", "fi", "for", "do", "done", "while", "case",
-        "esac", "function", "return", "exit", "true", "false", "test",
-        "[", "[[", "pwd", "pushd", "popd", "dirs", "history", "clear",
+        "cd", "ls", "echo", "export", "set", "unset", "alias", "source", "if", "then", "else",
+        "fi", "for", "do", "done", "while", "case", "esac", "function", "return", "exit", "true",
+        "false", "test", "[", "[[", "pwd", "pushd", "popd", "dirs", "history", "clear",
     ];
 
     if skip.contains(&cmd) {
@@ -171,45 +171,48 @@ pub fn parse_all_histories() -> Result<HashMap<String, i64>> {
 
     // Try Fish history
     if let Some(path) = fish_history_path()
-        && path.exists() {
-            match parse_fish_history(&path) {
-                Ok(entries) => {
-                    let counts = count_commands(&entries);
-                    for (cmd, count) in counts {
-                        *total_counts.entry(cmd).or_insert(0) += count;
-                    }
+        && path.exists()
+    {
+        match parse_fish_history(&path) {
+            Ok(entries) => {
+                let counts = count_commands(&entries);
+                for (cmd, count) in counts {
+                    *total_counts.entry(cmd).or_insert(0) += count;
                 }
-                Err(e) => eprintln!("Warning: Failed to parse fish history: {}", e),
             }
+            Err(e) => eprintln!("Warning: Failed to parse fish history: {}", e),
         }
+    }
 
     // Try Bash history
     if let Some(path) = bash_history_path()
-        && path.exists() {
-            match parse_bash_history(&path) {
-                Ok(entries) => {
-                    let counts = count_commands(&entries);
-                    for (cmd, count) in counts {
-                        *total_counts.entry(cmd).or_insert(0) += count;
-                    }
+        && path.exists()
+    {
+        match parse_bash_history(&path) {
+            Ok(entries) => {
+                let counts = count_commands(&entries);
+                for (cmd, count) in counts {
+                    *total_counts.entry(cmd).or_insert(0) += count;
                 }
-                Err(e) => eprintln!("Warning: Failed to parse bash history: {}", e),
             }
+            Err(e) => eprintln!("Warning: Failed to parse bash history: {}", e),
         }
+    }
 
     // Try Zsh history
     if let Some(path) = zsh_history_path()
-        && path.exists() {
-            match parse_zsh_history(&path) {
-                Ok(entries) => {
-                    let counts = count_commands(&entries);
-                    for (cmd, count) in counts {
-                        *total_counts.entry(cmd).or_insert(0) += count;
-                    }
+        && path.exists()
+    {
+        match parse_zsh_history(&path) {
+            Ok(entries) => {
+                let counts = count_commands(&entries);
+                for (cmd, count) in counts {
+                    *total_counts.entry(cmd).or_insert(0) += count;
                 }
-                Err(e) => eprintln!("Warning: Failed to parse zsh history: {}", e),
             }
+            Err(e) => eprintln!("Warning: Failed to parse zsh history: {}", e),
         }
+    }
 
     Ok(total_counts)
 }
@@ -250,8 +253,14 @@ mod tests {
     #[test]
     fn test_extract_command_with_path() {
         assert_eq!(extract_command("/usr/bin/rg pattern"), Some("rg"));
-        assert_eq!(extract_command("/home/user/.cargo/bin/cargo build"), Some("cargo"));
-        assert_eq!(extract_command("./local-script.sh"), Some("local-script.sh"));
+        assert_eq!(
+            extract_command("/home/user/.cargo/bin/cargo build"),
+            Some("cargo")
+        );
+        assert_eq!(
+            extract_command("./local-script.sh"),
+            Some("local-script.sh")
+        );
     }
 
     #[test]
@@ -280,10 +289,22 @@ mod tests {
     #[test]
     fn test_count_commands() {
         let entries = vec![
-            HistoryEntry { command: "git status".to_string(), timestamp: None },
-            HistoryEntry { command: "git commit".to_string(), timestamp: None },
-            HistoryEntry { command: "rg pattern".to_string(), timestamp: None },
-            HistoryEntry { command: "git push".to_string(), timestamp: None },
+            HistoryEntry {
+                command: "git status".to_string(),
+                timestamp: None,
+            },
+            HistoryEntry {
+                command: "git commit".to_string(),
+                timestamp: None,
+            },
+            HistoryEntry {
+                command: "rg pattern".to_string(),
+                timestamp: None,
+            },
+            HistoryEntry {
+                command: "git push".to_string(),
+                timestamp: None,
+            },
         ];
 
         let counts = count_commands(&entries);
@@ -301,8 +322,14 @@ mod tests {
     #[test]
     fn test_count_commands_only_builtins() {
         let entries = vec![
-            HistoryEntry { command: "cd /tmp".to_string(), timestamp: None },
-            HistoryEntry { command: "echo hello".to_string(), timestamp: None },
+            HistoryEntry {
+                command: "cd /tmp".to_string(),
+                timestamp: None,
+            },
+            HistoryEntry {
+                command: "echo hello".to_string(),
+                timestamp: None,
+            },
         ];
         let counts = count_commands(&entries);
         assert!(counts.is_empty());

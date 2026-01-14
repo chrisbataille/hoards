@@ -9,8 +9,15 @@ use std::process::Command;
 use crate::Database;
 
 /// Sync GitHub info for tools without it
-pub fn cmd_gh_sync(db: &Database, dry_run: bool, limit: Option<usize>, delay_ms: u64) -> Result<()> {
-    use crate::github::{find_repo, get_all_rate_limits, is_gh_available, topics_to_category, TopicMapping};
+pub fn cmd_gh_sync(
+    db: &Database,
+    dry_run: bool,
+    limit: Option<usize>,
+    delay_ms: u64,
+) -> Result<()> {
+    use crate::github::{
+        TopicMapping, find_repo, get_all_rate_limits, is_gh_available, topics_to_category,
+    };
 
     if !is_gh_available() {
         println!("{} GitHub CLI (gh) is not installed", "!".red());
@@ -114,7 +121,8 @@ pub fn cmd_gh_sync(db: &Database, dry_run: bool, limit: Option<usize>, delay_ms:
         }
 
         // Get tool's source to improve search accuracy (e.g., cargo -> language:rust)
-        let source = db.get_tool_by_name(tool_name)?
+        let source = db
+            .get_tool_by_name(tool_name)?
             .map(|t| t.source.to_string());
 
         print!("  {} {}... ", ">".dimmed(), tool_name);
@@ -123,11 +131,7 @@ pub fn cmd_gh_sync(db: &Database, dry_run: bool, limit: Option<usize>, delay_ms:
             Ok(Some(info)) => {
                 if dry_run {
                     println!("{}", "[dry] found".yellow());
-                    println!(
-                        "       {} ({} stars)",
-                        info.full_name.dimmed(),
-                        info.stars
-                    );
+                    println!("       {} ({} stars)", info.full_name.dimmed(), info.stars);
                     if !info.topics.is_empty() {
                         println!("       topics: {}", info.topics.join(", ").dimmed());
                     }
@@ -146,7 +150,8 @@ pub fn cmd_gh_sync(db: &Database, dry_run: bool, limit: Option<usize>, delay_ms:
                     )?;
 
                     // Add topics as labels
-                    let labels: Vec<String> = info.topics.iter().map(|t| t.to_lowercase()).collect();
+                    let labels: Vec<String> =
+                        info.topics.iter().map(|t| t.to_lowercase()).collect();
                     if !labels.is_empty() {
                         db.add_labels(tool_name, &labels)?;
                     }
@@ -157,17 +162,19 @@ pub fn cmd_gh_sync(db: &Database, dry_run: bool, limit: Option<usize>, delay_ms:
 
                         // Copy description from GitHub if tool has none
                         if tool.description.is_none()
-                            && let Some(desc) = &info.description {
-                                db.update_tool_description(tool_name, desc)?;
-                                updates.push("desc".to_string());
-                            }
+                            && let Some(desc) = &info.description
+                        {
+                            db.update_tool_description(tool_name, desc)?;
+                            updates.push("desc".to_string());
+                        }
 
                         // Auto-categorize from topics if uncategorized
                         if tool.category.is_none()
-                            && let Some(category) = topics_to_category(&info.topics, &mapping) {
-                                db.update_tool_category(tool_name, &category)?;
-                                updates.push(format!("→ {}", category));
-                            }
+                            && let Some(category) = topics_to_category(&info.topics, &mapping)
+                        {
+                            db.update_tool_category(tool_name, &category)?;
+                            updates.push(format!("→ {}", category));
+                        }
 
                         if updates.is_empty() {
                             println!("{}", "+".green());
@@ -258,7 +265,10 @@ pub fn cmd_gh_backfill(db: &Database, dry_run: bool) -> Result<()> {
     let tools = db.get_tools_needing_description_backfill()?;
 
     if tools.is_empty() {
-        println!("{} All tools with GitHub info already have descriptions", "+".green());
+        println!(
+            "{} All tools with GitHub info already have descriptions",
+            "+".green()
+        );
         return Ok(());
     }
 
@@ -271,10 +281,20 @@ pub fn cmd_gh_backfill(db: &Database, dry_run: bool) -> Result<()> {
 
     for (name, description) in &tools {
         if dry_run {
-            println!("  {} {} → {}", "[dry]".yellow(), name, description.chars().take(50).collect::<String>());
+            println!(
+                "  {} {} → {}",
+                "[dry]".yellow(),
+                name,
+                description.chars().take(50).collect::<String>()
+            );
         } else {
             db.update_tool_description(name, description)?;
-            println!("  {} {} → {}", "+".green(), name, description.chars().take(50).collect::<String>());
+            println!(
+                "  {} {} → {}",
+                "+".green(),
+                name,
+                description.chars().take(50).collect::<String>()
+            );
         }
     }
 
@@ -299,7 +319,7 @@ pub fn cmd_gh_backfill(db: &Database, dry_run: bool) -> Result<()> {
 
 /// Fetch GitHub info for a specific tool
 pub fn cmd_gh_fetch(db: &Database, name: &str) -> Result<()> {
-    use crate::github::{find_repo, is_gh_available, topics_to_category, TopicMapping};
+    use crate::github::{TopicMapping, find_repo, is_gh_available, topics_to_category};
 
     if !is_gh_available() {
         println!("{} GitHub CLI (gh) is not installed", "!".red());
@@ -310,7 +330,10 @@ pub fn cmd_gh_fetch(db: &Database, name: &str) -> Result<()> {
     let tool = db.get_tool_by_name(name)?;
     if tool.is_none() {
         println!("{} Tool '{}' not found in database", "!".yellow(), name);
-        println!("  Add it first with: {}", format!("hoard add {}", name).cyan());
+        println!(
+            "  Add it first with: {}",
+            format!("hoard add {}", name).cyan()
+        );
         return Ok(());
     }
     let source = tool.map(|t| t.source.to_string());
@@ -343,9 +366,10 @@ pub fn cmd_gh_fetch(db: &Database, name: &str) -> Result<()> {
             let mapping = TopicMapping::load();
             if let Some(tool) = db.get_tool_by_name(name)?
                 && tool.category.is_none()
-                    && let Some(category) = topics_to_category(&info.topics, &mapping) {
-                        db.update_tool_category(name, &category)?;
-                    }
+                && let Some(category) = topics_to_category(&info.topics, &mapping)
+            {
+                db.update_tool_category(name, &category)?;
+            }
 
             // Always update description from GitHub on explicit fetch
             if let Some(desc) = &info.description {

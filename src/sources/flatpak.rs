@@ -12,11 +12,7 @@ impl FlatpakSource {
     /// Extract the application name from a Flatpak application ID
     /// e.g., "org.mozilla.firefox" -> "firefox"
     fn app_name_from_id(app_id: &str) -> String {
-        app_id
-            .rsplit('.')
-            .next()
-            .unwrap_or(app_id)
-            .to_lowercase()
+        app_id.rsplit('.').next().unwrap_or(app_id).to_lowercase()
     }
 
     /// Map Flatpak remote to category
@@ -203,9 +199,18 @@ mod tests {
 
     #[test]
     fn test_app_name_from_id() {
-        assert_eq!(FlatpakSource::app_name_from_id("org.mozilla.firefox"), "firefox");
-        assert_eq!(FlatpakSource::app_name_from_id("com.visualstudio.code"), "code");
-        assert_eq!(FlatpakSource::app_name_from_id("org.gnome.Calculator"), "calculator");
+        assert_eq!(
+            FlatpakSource::app_name_from_id("org.mozilla.firefox"),
+            "firefox"
+        );
+        assert_eq!(
+            FlatpakSource::app_name_from_id("com.visualstudio.code"),
+            "code"
+        );
+        assert_eq!(
+            FlatpakSource::app_name_from_id("org.gnome.Calculator"),
+            "calculator"
+        );
         assert_eq!(FlatpakSource::app_name_from_id("simple"), "simple");
     }
 
