@@ -1,0 +1,43 @@
+[package]
+name = "hoard"
+version = "0.1.2"
+edition = "2024"
+description = "A tool management system with SQLite database and AI-assisted discovery"
+authors = ["Chris Bataille"]
+license = "MIT"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Utilities
+directories = "6"
+dirs = "6"
+colored = "3"
+chrono = { version = "0.4", features = ["serde"] }
+which = "7"
+
+# HTTP client (for PyPI API)
+ureq = { version = "3", features = ["json"] }
+
+# Interactive prompts
+dialoguer = "0.11"
+
+# TUI (for later)
+# ratatui = "0.29"
+# crossterm = "0.28"
+
+[dev-dependencies]
+tempfile = "3"
