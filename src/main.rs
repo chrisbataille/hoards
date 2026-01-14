@@ -10,15 +10,15 @@ use hoards::sources::ManualSource;
 use hoards::{
     AiCommands, AiConfigCommands, BundleCommands, Cli, Commands, ConfigCommands, Database,
     DiscoverCommands, GhCommands, InsightsCommands, InstallSource, KNOWN_TOOLS, Tool,
-    UsageCommands, all_sources, cmd_ai_categorize, cmd_ai_describe, cmd_ai_set, cmd_ai_show,
-    cmd_ai_suggest_bundle, cmd_ai_test, cmd_bundle_add, cmd_bundle_create, cmd_bundle_delete,
-    cmd_bundle_install, cmd_bundle_list, cmd_bundle_remove, cmd_bundle_show, cmd_bundle_update,
-    cmd_config_edit, cmd_config_link, cmd_config_list, cmd_config_show, cmd_config_status,
-    cmd_config_sync, cmd_config_unlink, cmd_doctor, cmd_edit, cmd_export, cmd_gh_backfill,
-    cmd_gh_fetch, cmd_gh_info, cmd_gh_rate_limit, cmd_gh_search, cmd_gh_sync, cmd_import,
-    cmd_install, cmd_labels, cmd_recommend, cmd_uninstall, cmd_unused, cmd_upgrade, cmd_usage_scan,
-    cmd_usage_show, cmd_usage_tool, is_installed, scan_known_tools, scan_missing_tools,
-    scan_path_tools, source_for,
+    UsageCommands, all_sources, cmd_ai_categorize, cmd_ai_describe, cmd_ai_extract, cmd_ai_set,
+    cmd_ai_show, cmd_ai_suggest_bundle, cmd_ai_test, cmd_bundle_add, cmd_bundle_create,
+    cmd_bundle_delete, cmd_bundle_install, cmd_bundle_list, cmd_bundle_remove, cmd_bundle_show,
+    cmd_bundle_update, cmd_config_edit, cmd_config_link, cmd_config_list, cmd_config_show,
+    cmd_config_status, cmd_config_sync, cmd_config_unlink, cmd_doctor, cmd_edit, cmd_export,
+    cmd_gh_backfill, cmd_gh_fetch, cmd_gh_info, cmd_gh_rate_limit, cmd_gh_search, cmd_gh_sync,
+    cmd_import, cmd_install, cmd_labels, cmd_recommend, cmd_uninstall, cmd_unused, cmd_upgrade,
+    cmd_usage_scan, cmd_usage_show, cmd_usage_tool, is_installed, scan_known_tools,
+    scan_missing_tools, scan_path_tools, source_for,
 };
 
 fn main() -> Result<()> {
@@ -189,6 +189,12 @@ fn main() -> Result<()> {
                 Ok(())
             }
             AiCommands::SuggestBundle { count } => cmd_ai_suggest_bundle(count),
+            AiCommands::Extract {
+                urls,
+                yes,
+                dry_run,
+                delay,
+            } => cmd_ai_extract(&db, urls, yes, dry_run, delay),
             // Backward compatibility aliases
             AiCommands::Set { provider } => cmd_ai_set(&provider),
             AiCommands::ShowConfig => cmd_ai_show(),

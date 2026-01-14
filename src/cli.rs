@@ -566,6 +566,28 @@ pub enum AiCommands {
         count: usize,
     },
 
+    /// Extract tool info from GitHub repository README
+    ///
+    /// Uses AI to parse README and extract tool metadata (name, binary, source, description).
+    /// Results are cached per repository version to avoid repeated API calls.
+    Extract {
+        /// GitHub repository URLs (e.g., https://github.com/BurntSushi/ripgrep)
+        #[arg(required = true)]
+        urls: Vec<String>,
+
+        /// Add extracted tools to database without confirmation
+        #[arg(short, long)]
+        yes: bool,
+
+        /// Only show what would be extracted (dry run)
+        #[arg(short, long)]
+        dry_run: bool,
+
+        /// Delay between API calls in milliseconds (for batch mode)
+        #[arg(long, default_value = "1000")]
+        delay: u64,
+    },
+
     // Hidden aliases for backward compatibility
     /// Set the AI provider (use 'ai config set' instead)
     #[command(hide = true)]
