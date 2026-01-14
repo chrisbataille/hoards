@@ -1,0 +1,33 @@
+#!/bin/bash
+# Pre-commit hook for hoards
+# Runs cargo fmt, clippy, and tests before allowing commit
+
+set -e
+
+echo "🔍 Running pre-commit checks..."
+
+# Check formatting
+echo "  Checking format..."
+if ! cargo fmt --check > /dev/null 2>&1; then
+    echo "❌ Format check failed. Run 'cargo fmt' to fix."
+    exit 1
+fi
+echo "  ✓ Format OK"
+
+# Run clippy
+echo "  Running clippy..."
+if ! cargo clippy --quiet -- -D warnings 2>/dev/null; then
+    echo "❌ Clippy found issues. Fix them before committing."
+    exit 1
+fi
+echo "  ✓ Clippy OK"
+
+# Run tests
+echo "  Running tests..."
+if ! cargo test --quiet 2>/dev/null; then
+    echo "❌ Tests failed. Fix them before committing."
+    exit 1
+fi
+echo "  ✓ Tests OK"
+
+echo "✅ All pre-commit checks passed!"
