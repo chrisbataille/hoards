@@ -1,8 +1,10 @@
 # Hoards
 
+[![CI](https://github.com/chrisbataille/hoards/actions/workflows/ci.yml/badge.svg)](https://github.com/chrisbataille/hoards/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/hoards.svg)](https://crates.io/crates/hoards)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+[![Downloads](https://img.shields.io/crates/d/hoards.svg)](https://crates.io/crates/hoards)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/chrisbataille/hoards)](https://github.com/chrisbataille/hoards/stargazers)
 
 **AI-powered CLI tool manager with usage analytics and multi-source tracking.**
 
