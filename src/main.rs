@@ -7,7 +7,7 @@ use std::thread;
 
 use hoard::{
     all_sources, is_installed, scan_known_tools, scan_missing_tools, scan_path_tools, source_for,
-    AiCommands, BundleCommands, Cli, Commands, Database, GhCommands,
+    AiCommands, BundleCommands, Cli, Commands, ConfigCommands, Database, GhCommands,
     InstallSource, Tool, UsageCommands, KNOWN_TOOLS,
     cmd_install, cmd_uninstall, cmd_upgrade,
     cmd_bundle_add, cmd_bundle_create, cmd_bundle_delete, cmd_bundle_install,
@@ -19,6 +19,8 @@ use hoard::{
     cmd_labels, cmd_recommend, cmd_unused, cmd_usage_scan,
     cmd_usage_show, cmd_usage_tool,
     cmd_doctor, cmd_edit, cmd_export, cmd_import,
+    cmd_config_link, cmd_config_unlink, cmd_config_list, cmd_config_show,
+    cmd_config_sync, cmd_config_status, cmd_config_edit,
 };
 use hoard::sources::ManualSource;
 
@@ -91,6 +93,22 @@ fn main() -> Result<()> {
             BundleCommands::Remove { name, tools } => cmd_bundle_remove(&db, &name, tools),
             BundleCommands::Delete { name, force } => cmd_bundle_delete(&db, &name, force),
             BundleCommands::Update { name, yes } => cmd_bundle_update(&db, &name, yes),
+        },
+
+        Commands::Config(subcmd) => match subcmd {
+            ConfigCommands::Link { name, target, source, tool } => {
+                cmd_config_link(&db, &name, &target, &source, tool)
+            }
+            ConfigCommands::Unlink { name, remove_symlink, force } => {
+                cmd_config_unlink(&db, &name, remove_symlink, force)
+            }
+            ConfigCommands::List { broken, format } => cmd_config_list(&db, broken, &format),
+            ConfigCommands::Show { name } => cmd_config_show(&db, &name),
+            ConfigCommands::Sync { dry_run, force } => cmd_config_sync(&db, dry_run, force),
+            ConfigCommands::Status => cmd_config_status(&db),
+            ConfigCommands::Edit { name, target, source, tool } => {
+                cmd_config_edit(&db, &name, target, source, tool)
+            }
         },
 
         Commands::Ai(subcmd) => match subcmd {

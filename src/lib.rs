@@ -10,7 +10,7 @@ pub mod scanner;
 pub mod sources;
 pub mod updates;
 
-pub use cli::{AiCommands, BundleCommands, Cli, Commands, GhCommands, UsageCommands};
+pub use cli::{AiCommands, BundleCommands, Cli, Commands, ConfigCommands, GhCommands, UsageCommands};
 pub use config::{AiProvider, HoardConfig};
 pub use db::Database;
 pub use models::{Bundle, Config, InstallSource, Interest, Tool};
@@ -29,4 +29,6 @@ pub use commands::{
     cmd_labels, cmd_recommend, cmd_unused, cmd_usage_scan,
     cmd_usage_show, cmd_usage_tool,
     cmd_doctor, cmd_edit, cmd_export, cmd_import,
+    cmd_config_link, cmd_config_unlink, cmd_config_list, cmd_config_show,
+    cmd_config_sync, cmd_config_status, cmd_config_edit,
 };

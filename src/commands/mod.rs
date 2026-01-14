@@ -4,6 +4,7 @@
 
 pub mod ai;
 pub mod bundle;
+pub mod config;
 pub mod github;
 pub mod install;
 pub mod misc;
@@ -40,4 +41,9 @@ pub use usage::{
 
 pub use misc::{
     cmd_doctor, cmd_edit, cmd_export, cmd_import,
+};
+
+pub use config::{
+    cmd_config_link, cmd_config_unlink, cmd_config_list, cmd_config_show,
+    cmd_config_sync, cmd_config_status, cmd_config_edit,
 };

@@ -192,6 +192,10 @@ pub enum Commands {
     #[command(subcommand)]
     Bundle(BundleCommands),
 
+    /// Manage dotfiles and tool configurations
+    #[command(subcommand)]
+    Config(ConfigCommands),
+
     /// Configure AI provider for smart features
     #[command(subcommand)]
     Ai(AiCommands),
@@ -450,5 +454,87 @@ pub enum BundleCommands {
         /// Auto-update all to latest without prompting
         #[arg(short, long)]
         yes: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommands {
+    /// Link a config directory to be managed by hoard
+    Link {
+        /// Config name (e.g., "fish", "nvim", "alacritty")
+        name: String,
+
+        /// Target path where config should be symlinked (e.g., ~/.config/fish)
+        target: String,
+
+        /// Source path in your dotfiles repo (e.g., ./shell/fish)
+        source: String,
+
+        /// Associate with a tool
+        #[arg(short, long)]
+        tool: Option<String>,
+    },
+
+    /// Unlink a config (removes from database, optionally removes symlink)
+    Unlink {
+        /// Config name
+        name: String,
+
+        /// Also remove the symlink
+        #[arg(short, long)]
+        remove_symlink: bool,
+
+        /// Skip confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// List all managed configs
+    List {
+        /// Show only configs with broken symlinks
+        #[arg(short, long)]
+        broken: bool,
+
+        /// Output format (table, json)
+        #[arg(short, long, default_value = "table")]
+        format: String,
+    },
+
+    /// Show details for a specific config
+    Show {
+        /// Config name
+        name: String,
+    },
+
+    /// Create symlinks for all managed configs
+    Sync {
+        /// Only show what would be done (dry run)
+        #[arg(short, long)]
+        dry_run: bool,
+
+        /// Force overwrite existing files (not symlinks)
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Check status of all config symlinks
+    Status,
+
+    /// Edit a config's paths
+    Edit {
+        /// Config name
+        name: String,
+
+        /// New target path
+        #[arg(short, long)]
+        target: Option<String>,
+
+        /// New source path
+        #[arg(short, long)]
+        source: Option<String>,
+
+        /// Associate with a tool
+        #[arg(long)]
+        tool: Option<String>,
     },
 }
