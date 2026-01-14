@@ -170,12 +170,33 @@ We use squash merging to keep `develop` and `main` history clean. The PR title b
 git clone https://github.com/YOUR_USERNAME/hoards.git
 cd hoards
 
+# Enable pre-commit hooks (required)
+git config core.hooksPath .githooks
+
 # Ensure you're on develop for new work
 git checkout develop
 git pull origin develop
 
 # Create your feature branch
 git checkout -b feature/your-feature
+```
+
+### Pre-commit Hooks
+
+We use git hooks to ensure code quality before each commit. The hooks automatically run:
+
+1. `cargo fmt --check` - Format verification
+2. `cargo clippy` - Lint checks
+3. `cargo test` - Test suite
+
+To enable hooks after cloning:
+```bash
+git config core.hooksPath .githooks
+```
+
+If you need to bypass hooks temporarily (not recommended):
+```bash
+git commit --no-verify -m "message"
 ```
 
 ## Code Style

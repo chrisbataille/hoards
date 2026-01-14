@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 use clap_complete::Shell;
 
 #[derive(Parser)]
-#[command(name = "hoard")]
+#[command(name = "hoards")]
 #[command(about = "AI-powered CLI tool manager with usage analytics and multi-source tracking")]
 #[command(version)]
 #[command(after_help = "Use 'hoards <command> --help' for more information about a command.")]
