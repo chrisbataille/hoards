@@ -72,7 +72,7 @@ pub fn fetch_brew_description(formula: &str) -> Option<String> {
 /// Format is typically: "tool - short description"
 pub fn fetch_man_description(binary: &str) -> Option<String> {
     let output = Command::new("man")
-        .args(["-f", binary])  // whatis format: "tool (1) - description"
+        .args(["-f", binary]) // whatis format: "tool (1) - description"
         .output()
         .ok()?;
 
@@ -111,7 +111,11 @@ pub fn fetch_help_description(binary: &str) -> Option<String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let text = if stdout.len() > stderr.len() { stdout } else { stderr };
+    let text = if stdout.len() > stderr.len() {
+        stdout
+    } else {
+        stderr
+    };
 
     // Skip if too short
     if text.len() < 10 {
@@ -145,7 +149,8 @@ pub fn fetch_help_description(binary: &str) -> Option<String> {
             || line.contains("▀")
             || line.contains("[0m")  // ANSI codes
             || line.contains("[38;")
-            || line.chars().filter(|c| *c == '-').count() > 3  // Option-heavy lines
+            || line.chars().filter(|c| *c == '-').count() > 3
+        // Option-heavy lines
         {
             continue;
         }
@@ -189,75 +194,453 @@ pub struct KnownTool {
 /// List of known CLI tools to scan for
 pub static KNOWN_TOOLS: &[KnownTool] = &[
     // Modern CLI replacements
-    KnownTool { name: "eza", binary: "eza", description: "Modern ls replacement with git integration", category: "files", source: InstallSource::Cargo, install_cmd: "cargo install eza" },
-    KnownTool { name: "bat", binary: "bat", description: "Cat clone with syntax highlighting", category: "files", source: InstallSource::Cargo, install_cmd: "cargo install bat" },
-    KnownTool { name: "ripgrep", binary: "rg", description: "Fast recursive grep", category: "search", source: InstallSource::Cargo, install_cmd: "cargo install ripgrep" },
-    KnownTool { name: "fd", binary: "fd", description: "Fast find alternative", category: "search", source: InstallSource::Cargo, install_cmd: "cargo install fd-find" },
-    KnownTool { name: "dust", binary: "dust", description: "Intuitive disk usage viewer", category: "system", source: InstallSource::Cargo, install_cmd: "cargo install du-dust" },
-    KnownTool { name: "duf", binary: "duf", description: "Better df alternative", category: "system", source: InstallSource::Apt, install_cmd: "sudo apt install duf" },
-    KnownTool { name: "btop", binary: "btop", description: "Resource monitor", category: "system", source: InstallSource::Apt, install_cmd: "sudo apt install btop" },
-    KnownTool { name: "htop", binary: "htop", description: "Interactive process viewer", category: "system", source: InstallSource::Apt, install_cmd: "sudo apt install htop" },
-    KnownTool { name: "procs", binary: "procs", description: "Modern ps replacement", category: "system", source: InstallSource::Cargo, install_cmd: "cargo install procs" },
-    KnownTool { name: "bottom", binary: "btm", description: "Graphical process/system monitor", category: "system", source: InstallSource::Cargo, install_cmd: "cargo install bottom" },
-    KnownTool { name: "zoxide", binary: "zoxide", description: "Smarter cd command", category: "navigation", source: InstallSource::Cargo, install_cmd: "cargo install zoxide" },
-    KnownTool { name: "fzf", binary: "fzf", description: "Fuzzy finder", category: "search", source: InstallSource::Apt, install_cmd: "sudo apt install fzf" },
-    KnownTool { name: "delta", binary: "delta", description: "Better git diff viewer", category: "git", source: InstallSource::Cargo, install_cmd: "cargo install git-delta" },
-    KnownTool { name: "lazygit", binary: "lazygit", description: "Terminal UI for git", category: "git", source: InstallSource::Manual, install_cmd: "go install github.com/jesseduffield/lazygit@latest" },
-    KnownTool { name: "lazydocker", binary: "lazydocker", description: "Terminal UI for docker", category: "docker", source: InstallSource::Manual, install_cmd: "go install github.com/jesseduffield/lazydocker@latest" },
-    KnownTool { name: "tokei", binary: "tokei", description: "Code statistics", category: "dev", source: InstallSource::Cargo, install_cmd: "cargo install tokei" },
-    KnownTool { name: "hyperfine", binary: "hyperfine", description: "Command-line benchmarking", category: "dev", source: InstallSource::Cargo, install_cmd: "cargo install hyperfine" },
-    KnownTool { name: "just", binary: "just", description: "Modern make alternative", category: "dev", source: InstallSource::Cargo, install_cmd: "cargo install just" },
-    KnownTool { name: "starship", binary: "starship", description: "Cross-shell prompt", category: "shell", source: InstallSource::Cargo, install_cmd: "cargo install starship" },
-    KnownTool { name: "jq", binary: "jq", description: "JSON processor", category: "data", source: InstallSource::Apt, install_cmd: "sudo apt install jq" },
-    KnownTool { name: "yq", binary: "yq", description: "YAML processor", category: "data", source: InstallSource::Manual, install_cmd: "pip install yq" },
-    KnownTool { name: "httpie", binary: "http", description: "Human-friendly HTTP client", category: "network", source: InstallSource::Pip, install_cmd: "pip install httpie" },
-    KnownTool { name: "curlie", binary: "curlie", description: "Curl with httpie interface", category: "network", source: InstallSource::Cargo, install_cmd: "cargo install curlie" },
-    KnownTool { name: "xh", binary: "xh", description: "Fast HTTP client", category: "network", source: InstallSource::Cargo, install_cmd: "cargo install xh" },
-    KnownTool { name: "bandwhich", binary: "bandwhich", description: "Network utilization viewer", category: "network", source: InstallSource::Cargo, install_cmd: "cargo install bandwhich" },
-    KnownTool { name: "dog", binary: "dog", description: "DNS lookup client", category: "network", source: InstallSource::Cargo, install_cmd: "cargo install dog" },
-    KnownTool { name: "tldr", binary: "tldr", description: "Simplified man pages", category: "docs", source: InstallSource::Cargo, install_cmd: "cargo install tealdeer" },
-    KnownTool { name: "glow", binary: "glow", description: "Markdown renderer", category: "docs", source: InstallSource::Manual, install_cmd: "go install github.com/charmbracelet/glow@latest" },
-    KnownTool { name: "sd", binary: "sd", description: "Intuitive sed alternative", category: "text", source: InstallSource::Cargo, install_cmd: "cargo install sd" },
-    KnownTool { name: "choose", binary: "choose", description: "Human-friendly cut", category: "text", source: InstallSource::Cargo, install_cmd: "cargo install choose" },
-
+    KnownTool {
+        name: "eza",
+        binary: "eza",
+        description: "Modern ls replacement with git integration",
+        category: "files",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install eza",
+    },
+    KnownTool {
+        name: "bat",
+        binary: "bat",
+        description: "Cat clone with syntax highlighting",
+        category: "files",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install bat",
+    },
+    KnownTool {
+        name: "ripgrep",
+        binary: "rg",
+        description: "Fast recursive grep",
+        category: "search",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install ripgrep",
+    },
+    KnownTool {
+        name: "fd",
+        binary: "fd",
+        description: "Fast find alternative",
+        category: "search",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install fd-find",
+    },
+    KnownTool {
+        name: "dust",
+        binary: "dust",
+        description: "Intuitive disk usage viewer",
+        category: "system",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install du-dust",
+    },
+    KnownTool {
+        name: "duf",
+        binary: "duf",
+        description: "Better df alternative",
+        category: "system",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install duf",
+    },
+    KnownTool {
+        name: "btop",
+        binary: "btop",
+        description: "Resource monitor",
+        category: "system",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install btop",
+    },
+    KnownTool {
+        name: "htop",
+        binary: "htop",
+        description: "Interactive process viewer",
+        category: "system",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install htop",
+    },
+    KnownTool {
+        name: "procs",
+        binary: "procs",
+        description: "Modern ps replacement",
+        category: "system",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install procs",
+    },
+    KnownTool {
+        name: "bottom",
+        binary: "btm",
+        description: "Graphical process/system monitor",
+        category: "system",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install bottom",
+    },
+    KnownTool {
+        name: "zoxide",
+        binary: "zoxide",
+        description: "Smarter cd command",
+        category: "navigation",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install zoxide",
+    },
+    KnownTool {
+        name: "fzf",
+        binary: "fzf",
+        description: "Fuzzy finder",
+        category: "search",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install fzf",
+    },
+    KnownTool {
+        name: "delta",
+        binary: "delta",
+        description: "Better git diff viewer",
+        category: "git",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install git-delta",
+    },
+    KnownTool {
+        name: "lazygit",
+        binary: "lazygit",
+        description: "Terminal UI for git",
+        category: "git",
+        source: InstallSource::Manual,
+        install_cmd: "go install github.com/jesseduffield/lazygit@latest",
+    },
+    KnownTool {
+        name: "lazydocker",
+        binary: "lazydocker",
+        description: "Terminal UI for docker",
+        category: "docker",
+        source: InstallSource::Manual,
+        install_cmd: "go install github.com/jesseduffield/lazydocker@latest",
+    },
+    KnownTool {
+        name: "tokei",
+        binary: "tokei",
+        description: "Code statistics",
+        category: "dev",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install tokei",
+    },
+    KnownTool {
+        name: "hyperfine",
+        binary: "hyperfine",
+        description: "Command-line benchmarking",
+        category: "dev",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install hyperfine",
+    },
+    KnownTool {
+        name: "just",
+        binary: "just",
+        description: "Modern make alternative",
+        category: "dev",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install just",
+    },
+    KnownTool {
+        name: "starship",
+        binary: "starship",
+        description: "Cross-shell prompt",
+        category: "shell",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install starship",
+    },
+    KnownTool {
+        name: "jq",
+        binary: "jq",
+        description: "JSON processor",
+        category: "data",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install jq",
+    },
+    KnownTool {
+        name: "yq",
+        binary: "yq",
+        description: "YAML processor",
+        category: "data",
+        source: InstallSource::Manual,
+        install_cmd: "pip install yq",
+    },
+    KnownTool {
+        name: "httpie",
+        binary: "http",
+        description: "Human-friendly HTTP client",
+        category: "network",
+        source: InstallSource::Pip,
+        install_cmd: "pip install httpie",
+    },
+    KnownTool {
+        name: "curlie",
+        binary: "curlie",
+        description: "Curl with httpie interface",
+        category: "network",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install curlie",
+    },
+    KnownTool {
+        name: "xh",
+        binary: "xh",
+        description: "Fast HTTP client",
+        category: "network",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install xh",
+    },
+    KnownTool {
+        name: "bandwhich",
+        binary: "bandwhich",
+        description: "Network utilization viewer",
+        category: "network",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install bandwhich",
+    },
+    KnownTool {
+        name: "dog",
+        binary: "dog",
+        description: "DNS lookup client",
+        category: "network",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install dog",
+    },
+    KnownTool {
+        name: "tldr",
+        binary: "tldr",
+        description: "Simplified man pages",
+        category: "docs",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install tealdeer",
+    },
+    KnownTool {
+        name: "glow",
+        binary: "glow",
+        description: "Markdown renderer",
+        category: "docs",
+        source: InstallSource::Manual,
+        install_cmd: "go install github.com/charmbracelet/glow@latest",
+    },
+    KnownTool {
+        name: "sd",
+        binary: "sd",
+        description: "Intuitive sed alternative",
+        category: "text",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install sd",
+    },
+    KnownTool {
+        name: "choose",
+        binary: "choose",
+        description: "Human-friendly cut",
+        category: "text",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install choose",
+    },
     // Shells
-    KnownTool { name: "fish", binary: "fish", description: "Friendly interactive shell", category: "shell", source: InstallSource::Apt, install_cmd: "sudo apt install fish" },
-    KnownTool { name: "zsh", binary: "zsh", description: "Z shell", category: "shell", source: InstallSource::Apt, install_cmd: "sudo apt install zsh" },
-    KnownTool { name: "nushell", binary: "nu", description: "Modern shell with structured data", category: "shell", source: InstallSource::Cargo, install_cmd: "cargo install nu" },
-
+    KnownTool {
+        name: "fish",
+        binary: "fish",
+        description: "Friendly interactive shell",
+        category: "shell",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install fish",
+    },
+    KnownTool {
+        name: "zsh",
+        binary: "zsh",
+        description: "Z shell",
+        category: "shell",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install zsh",
+    },
+    KnownTool {
+        name: "nushell",
+        binary: "nu",
+        description: "Modern shell with structured data",
+        category: "shell",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install nu",
+    },
     // Terminal emulators/multiplexers
-    KnownTool { name: "alacritty", binary: "alacritty", description: "GPU-accelerated terminal", category: "terminal", source: InstallSource::Apt, install_cmd: "sudo apt install alacritty" },
-    KnownTool { name: "zellij", binary: "zellij", description: "Terminal multiplexer", category: "terminal", source: InstallSource::Cargo, install_cmd: "cargo install zellij" },
-    KnownTool { name: "tmux", binary: "tmux", description: "Terminal multiplexer", category: "terminal", source: InstallSource::Apt, install_cmd: "sudo apt install tmux" },
-    KnownTool { name: "wezterm", binary: "wezterm", description: "GPU-accelerated terminal", category: "terminal", source: InstallSource::Manual, install_cmd: "flatpak install wezterm" },
-    KnownTool { name: "kitty", binary: "kitty", description: "GPU-accelerated terminal", category: "terminal", source: InstallSource::Apt, install_cmd: "sudo apt install kitty" },
-
+    KnownTool {
+        name: "alacritty",
+        binary: "alacritty",
+        description: "GPU-accelerated terminal",
+        category: "terminal",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install alacritty",
+    },
+    KnownTool {
+        name: "zellij",
+        binary: "zellij",
+        description: "Terminal multiplexer",
+        category: "terminal",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install zellij",
+    },
+    KnownTool {
+        name: "tmux",
+        binary: "tmux",
+        description: "Terminal multiplexer",
+        category: "terminal",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install tmux",
+    },
+    KnownTool {
+        name: "wezterm",
+        binary: "wezterm",
+        description: "GPU-accelerated terminal",
+        category: "terminal",
+        source: InstallSource::Manual,
+        install_cmd: "flatpak install wezterm",
+    },
+    KnownTool {
+        name: "kitty",
+        binary: "kitty",
+        description: "GPU-accelerated terminal",
+        category: "terminal",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install kitty",
+    },
     // Editors
-    KnownTool { name: "neovim", binary: "nvim", description: "Hyperextensible Vim-based editor", category: "editor", source: InstallSource::Apt, install_cmd: "sudo apt install neovim" },
-    KnownTool { name: "helix", binary: "hx", description: "Post-modern modal editor", category: "editor", source: InstallSource::Apt, install_cmd: "sudo apt install helix" },
-    KnownTool { name: "micro", binary: "micro", description: "Modern terminal-based editor", category: "editor", source: InstallSource::Apt, install_cmd: "sudo apt install micro" },
-
+    KnownTool {
+        name: "neovim",
+        binary: "nvim",
+        description: "Hyperextensible Vim-based editor",
+        category: "editor",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install neovim",
+    },
+    KnownTool {
+        name: "helix",
+        binary: "hx",
+        description: "Post-modern modal editor",
+        category: "editor",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install helix",
+    },
+    KnownTool {
+        name: "micro",
+        binary: "micro",
+        description: "Modern terminal-based editor",
+        category: "editor",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install micro",
+    },
     // Version managers
-    KnownTool { name: "rustup", binary: "rustup", description: "Rust toolchain manager", category: "lang", source: InstallSource::Manual, install_cmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh" },
-    KnownTool { name: "pyenv", binary: "pyenv", description: "Python version manager", category: "lang", source: InstallSource::Manual, install_cmd: "curl https://pyenv.run | bash" },
-    KnownTool { name: "nvm", binary: "nvm", description: "Node version manager", category: "lang", source: InstallSource::Manual, install_cmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash" },
-    KnownTool { name: "fnm", binary: "fnm", description: "Fast Node manager", category: "lang", source: InstallSource::Cargo, install_cmd: "cargo install fnm" },
-
+    KnownTool {
+        name: "rustup",
+        binary: "rustup",
+        description: "Rust toolchain manager",
+        category: "lang",
+        source: InstallSource::Manual,
+        install_cmd: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+    },
+    KnownTool {
+        name: "pyenv",
+        binary: "pyenv",
+        description: "Python version manager",
+        category: "lang",
+        source: InstallSource::Manual,
+        install_cmd: "curl https://pyenv.run | bash",
+    },
+    KnownTool {
+        name: "nvm",
+        binary: "nvm",
+        description: "Node version manager",
+        category: "lang",
+        source: InstallSource::Manual,
+        install_cmd: "curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash",
+    },
+    KnownTool {
+        name: "fnm",
+        binary: "fnm",
+        description: "Fast Node manager",
+        category: "lang",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install fnm",
+    },
     // Container/K8s
-    KnownTool { name: "docker", binary: "docker", description: "Container runtime", category: "container", source: InstallSource::Apt, install_cmd: "sudo apt install docker.io" },
-    KnownTool { name: "podman", binary: "podman", description: "Daemonless container engine", category: "container", source: InstallSource::Apt, install_cmd: "sudo apt install podman" },
-    KnownTool { name: "kubectl", binary: "kubectl", description: "Kubernetes CLI", category: "container", source: InstallSource::Manual, install_cmd: "sudo snap install kubectl --classic" },
-    KnownTool { name: "k9s", binary: "k9s", description: "Kubernetes TUI", category: "container", source: InstallSource::Manual, install_cmd: "go install github.com/derailed/k9s@latest" },
-    KnownTool { name: "helm", binary: "helm", description: "Kubernetes package manager", category: "container", source: InstallSource::Manual, install_cmd: "sudo snap install helm --classic" },
-
+    KnownTool {
+        name: "docker",
+        binary: "docker",
+        description: "Container runtime",
+        category: "container",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install docker.io",
+    },
+    KnownTool {
+        name: "podman",
+        binary: "podman",
+        description: "Daemonless container engine",
+        category: "container",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install podman",
+    },
+    KnownTool {
+        name: "kubectl",
+        binary: "kubectl",
+        description: "Kubernetes CLI",
+        category: "container",
+        source: InstallSource::Manual,
+        install_cmd: "sudo snap install kubectl --classic",
+    },
+    KnownTool {
+        name: "k9s",
+        binary: "k9s",
+        description: "Kubernetes TUI",
+        category: "container",
+        source: InstallSource::Manual,
+        install_cmd: "go install github.com/derailed/k9s@latest",
+    },
+    KnownTool {
+        name: "helm",
+        binary: "helm",
+        description: "Kubernetes package manager",
+        category: "container",
+        source: InstallSource::Manual,
+        install_cmd: "sudo snap install helm --classic",
+    },
     // Git tools
-    KnownTool { name: "gh", binary: "gh", description: "GitHub CLI", category: "git", source: InstallSource::Apt, install_cmd: "sudo apt install gh" },
-    KnownTool { name: "git-lfs", binary: "git-lfs", description: "Git large file storage", category: "git", source: InstallSource::Apt, install_cmd: "sudo apt install git-lfs" },
-    KnownTool { name: "gitui", binary: "gitui", description: "Blazing fast git TUI", category: "git", source: InstallSource::Cargo, install_cmd: "cargo install gitui" },
-
+    KnownTool {
+        name: "gh",
+        binary: "gh",
+        description: "GitHub CLI",
+        category: "git",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install gh",
+    },
+    KnownTool {
+        name: "git-lfs",
+        binary: "git-lfs",
+        description: "Git large file storage",
+        category: "git",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install git-lfs",
+    },
+    KnownTool {
+        name: "gitui",
+        binary: "gitui",
+        description: "Blazing fast git TUI",
+        category: "git",
+        source: InstallSource::Cargo,
+        install_cmd: "cargo install gitui",
+    },
     // Security
-    KnownTool { name: "age", binary: "age", description: "Simple encryption tool", category: "security", source: InstallSource::Apt, install_cmd: "sudo apt install age" },
-    KnownTool { name: "git-crypt", binary: "git-crypt", description: "Git file encryption", category: "security", source: InstallSource::Apt, install_cmd: "sudo apt install git-crypt" },
+    KnownTool {
+        name: "age",
+        binary: "age",
+        description: "Simple encryption tool",
+        category: "security",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install age",
+    },
+    KnownTool {
+        name: "git-crypt",
+        binary: "git-crypt",
+        description: "Git file encryption",
+        category: "security",
+        source: InstallSource::Apt,
+        install_cmd: "sudo apt install git-crypt",
+    },
 ];
 
 /// Check if a binary is installed
@@ -301,9 +684,7 @@ pub fn scan_missing_tools() -> Vec<Tool> {
 /// Scan cargo installed crates and return as Tools
 /// Cargo packages are almost always CLI tools
 pub fn scan_cargo_tools() -> Result<Vec<Tool>> {
-    let output = Command::new("cargo")
-        .args(["install", "--list"])
-        .output()?;
+    let output = Command::new("cargo").args(["install", "--list"]).output()?;
 
     if !output.status.success() {
         return Ok(Vec::new());
@@ -322,7 +703,9 @@ pub fn scan_cargo_tools() -> Result<Vec<Tool>> {
             let binary = line.trim();
             if !binary.is_empty() && is_installed(binary) {
                 // Skip if already in KNOWN_TOOLS (we have better metadata there)
-                let dominated = KNOWN_TOOLS.iter().any(|kt| kt.name == crate_name || kt.binary == binary);
+                let dominated = KNOWN_TOOLS
+                    .iter()
+                    .any(|kt| kt.name == crate_name || kt.binary == binary);
                 if !dominated {
                     let mut tool = Tool::new(crate_name)
                         .with_source(InstallSource::Cargo)
@@ -351,7 +734,11 @@ pub fn scan_pip_tools() -> Result<Vec<Tool>> {
     let output = Command::new("pip3")
         .args(["list", "--format=freeze"])
         .output()
-        .or_else(|_| Command::new("pip").args(["list", "--format=freeze"]).output())?;
+        .or_else(|_| {
+            Command::new("pip")
+                .args(["list", "--format=freeze"])
+                .output()
+        })?;
 
     if !output.status.success() {
         return Ok(Vec::new());
@@ -486,7 +873,7 @@ pub fn scan_brew_tools() -> Result<Vec<Tool>> {
                 .with_binary(package)
                 .with_category("cli")
                 .with_install_command(format!("brew install {}", package))
-                .installed()
+                .installed(),
         );
     }
 
@@ -504,8 +891,22 @@ const PATH_SCAN_DIRS: &[&str] = &[
 
 /// Binaries to skip (system utilities, not interesting to track)
 const PATH_SKIP_BINARIES: &[&str] = &[
-    ".", "..", "activate", "deactivate", "python", "python3", "pip", "pip3",
-    "node", "npm", "npx", "cargo", "rustc", "rustup", "go", "gofmt",
+    ".",
+    "..",
+    "activate",
+    "deactivate",
+    "python",
+    "python3",
+    "pip",
+    "pip3",
+    "node",
+    "npm",
+    "npx",
+    "cargo",
+    "rustc",
+    "rustup",
+    "go",
+    "gofmt",
 ];
 
 /// Scan PATH directories for binaries not tracked by other package managers
@@ -563,7 +964,10 @@ pub fn scan_path_tools(tracked_binaries: &std::collections::HashSet<String>) -> 
             if PATH_SKIP_BINARIES.contains(&name.as_str()) {
                 continue;
             }
-            if KNOWN_TOOLS.iter().any(|kt| kt.binary == name || kt.name == name) {
+            if KNOWN_TOOLS
+                .iter()
+                .any(|kt| kt.binary == name || kt.name == name)
+            {
                 continue;
             }
 
@@ -588,7 +992,7 @@ pub fn scan_path_tools(tracked_binaries: &std::collections::HashSet<String>) -> 
                     .with_source(source)
                     .with_binary(&name)
                     .with_category(category)
-                    .installed()
+                    .installed(),
             );
         }
     }
@@ -598,22 +1002,48 @@ pub fn scan_path_tools(tracked_binaries: &std::collections::HashSet<String>) -> 
 
 /// GUI-related apt sections to skip
 const GUI_SECTIONS: &[&str] = &[
-    "x11", "gnome", "kde", "xfce", "lxde", "lxqt", "mate", "cinnamon",
-    "graphics", "video", "sound", "games", "fonts", "libdevel",
+    "x11", "gnome", "kde", "xfce", "lxde", "lxqt", "mate", "cinnamon", "graphics", "video",
+    "sound", "games", "fonts", "libdevel",
 ];
 
 /// GUI-related dependencies to skip
 const GUI_DEPS: &[&str] = &[
-    "libgtk", "libqt", "libx11", "libwayland", "libgl", "libvulkan",
-    "libsdl", "libegl", "libgdk", "libwx", "libfltk", "libcairo",
-    "libpango", "libglib", "libgio",
+    "libgtk",
+    "libqt",
+    "libx11",
+    "libwayland",
+    "libgl",
+    "libvulkan",
+    "libsdl",
+    "libegl",
+    "libgdk",
+    "libwx",
+    "libfltk",
+    "libcairo",
+    "libpango",
+    "libglib",
+    "libgio",
 ];
 
 /// Known GUI package names/patterns to skip
 const GUI_PACKAGES: &[&str] = &[
-    "firefox", "thunderbird", "chrome", "chromium", "code", "slack",
-    "discord", "telegram", "signal", "spotify", "vlc", "gimp",
-    "inkscape", "blender", "libreoffice", "solaar", "claude-desktop",
+    "firefox",
+    "thunderbird",
+    "chrome",
+    "chromium",
+    "code",
+    "slack",
+    "discord",
+    "telegram",
+    "signal",
+    "spotify",
+    "vlc",
+    "gimp",
+    "inkscape",
+    "blender",
+    "libreoffice",
+    "solaar",
+    "claude-desktop",
 ];
 
 /// Package name patterns that indicate GUI apps
@@ -717,9 +1147,10 @@ pub fn scan_apt_tools() -> Result<Vec<Tool>> {
             .installed();
 
         if let Some(desc) = description
-            && !desc.is_empty() {
-                tool = tool.with_description(desc);
-            }
+            && !desc.is_empty()
+        {
+            tool = tool.with_description(desc);
+        }
 
         tools.push(tool);
     }

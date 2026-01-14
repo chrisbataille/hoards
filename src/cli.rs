@@ -16,7 +16,6 @@ pub enum Commands {
     // ============================================
     // CORE COMMANDS
     // ============================================
-
     /// Add a tool to the database
     Add {
         /// Tool name
@@ -72,7 +71,6 @@ pub enum Commands {
     // ============================================
     // SYNC - Unified sync command
     // ============================================
-
     /// Sync database with system state
     ///
     /// By default, only checks installation status.
@@ -120,7 +118,6 @@ pub enum Commands {
     // ============================================
     // DISCOVER - Tool discovery command group
     // ============================================
-
     /// Discover and explore tools
     #[command(subcommand)]
     Discover(DiscoverCommands),
@@ -128,7 +125,6 @@ pub enum Commands {
     // ============================================
     // INSIGHTS - Analytics and health command group
     // ============================================
-
     /// View usage analytics and system health
     #[command(subcommand)]
     Insights(InsightsCommands),
@@ -136,7 +132,6 @@ pub enum Commands {
     // ============================================
     // AI - AI-powered features
     // ============================================
-
     /// AI-powered tool management
     #[command(subcommand)]
     Ai(AiCommands),
@@ -144,7 +139,6 @@ pub enum Commands {
     // ============================================
     // WORKFLOW COMMANDS
     // ============================================
-
     /// First-time setup wizard
     ///
     /// Guides you through initial setup:
@@ -195,7 +189,6 @@ pub enum Commands {
     // ============================================
     // INSTALL/UNINSTALL/UPGRADE
     // ============================================
-
     /// Install a tool
     Install {
         /// Tool name to install
@@ -268,7 +261,6 @@ pub enum Commands {
     // ============================================
     // BUNDLES & CONFIG
     // ============================================
-
     /// Manage tool bundles
     #[command(subcommand)]
     Bundle(BundleCommands),
@@ -280,7 +272,6 @@ pub enum Commands {
     // ============================================
     // IMPORT/EXPORT
     // ============================================
-
     /// Export tools database to a file
     Export {
         /// Output file path (supports .json or .toml)
@@ -313,7 +304,6 @@ pub enum Commands {
     // ============================================
     // GITHUB (power user commands)
     // ============================================
-
     /// GitHub integration (advanced)
     #[command(subcommand)]
     Gh(GhCommands),
@@ -321,7 +311,6 @@ pub enum Commands {
     // ============================================
     // SHELL COMPLETIONS
     // ============================================
-
     /// Generate shell completions
     Completions {
         /// Shell to generate completions for
@@ -332,7 +321,6 @@ pub enum Commands {
     // ============================================
     // ALIASES (hidden, for backward compatibility)
     // ============================================
-
     /// List tools in the database
     #[command(hide = true)]
     List {

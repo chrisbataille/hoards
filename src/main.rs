@@ -6,25 +6,20 @@ use colored::Colorize;
 use std::collections::HashSet;
 use std::thread;
 
-use hoard::{
-    all_sources, is_installed, scan_known_tools, scan_missing_tools, scan_path_tools, source_for,
-    AiCommands, AiConfigCommands, BundleCommands, Cli, Commands, ConfigCommands,
-    DiscoverCommands, GhCommands, InsightsCommands,
-    Database, InstallSource, Tool, UsageCommands, KNOWN_TOOLS,
-    cmd_install, cmd_uninstall, cmd_upgrade,
-    cmd_bundle_add, cmd_bundle_create, cmd_bundle_delete, cmd_bundle_install,
-    cmd_bundle_list, cmd_bundle_remove, cmd_bundle_show, cmd_bundle_update,
-    cmd_ai_categorize, cmd_ai_describe, cmd_ai_set, cmd_ai_show,
-    cmd_ai_suggest_bundle, cmd_ai_test,
-    cmd_gh_backfill, cmd_gh_fetch, cmd_gh_info, cmd_gh_rate_limit,
-    cmd_gh_search, cmd_gh_sync,
-    cmd_labels, cmd_recommend, cmd_unused, cmd_usage_scan,
-    cmd_usage_show, cmd_usage_tool,
-    cmd_doctor, cmd_edit, cmd_export, cmd_import,
-    cmd_config_link, cmd_config_unlink, cmd_config_list, cmd_config_show,
-    cmd_config_sync, cmd_config_status, cmd_config_edit,
-};
 use hoard::sources::ManualSource;
+use hoard::{
+    AiCommands, AiConfigCommands, BundleCommands, Cli, Commands, ConfigCommands, Database,
+    DiscoverCommands, GhCommands, InsightsCommands, InstallSource, KNOWN_TOOLS, Tool,
+    UsageCommands, all_sources, cmd_ai_categorize, cmd_ai_describe, cmd_ai_set, cmd_ai_show,
+    cmd_ai_suggest_bundle, cmd_ai_test, cmd_bundle_add, cmd_bundle_create, cmd_bundle_delete,
+    cmd_bundle_install, cmd_bundle_list, cmd_bundle_remove, cmd_bundle_show, cmd_bundle_update,
+    cmd_config_edit, cmd_config_link, cmd_config_list, cmd_config_show, cmd_config_status,
+    cmd_config_sync, cmd_config_unlink, cmd_doctor, cmd_edit, cmd_export, cmd_gh_backfill,
+    cmd_gh_fetch, cmd_gh_info, cmd_gh_rate_limit, cmd_gh_search, cmd_gh_sync, cmd_import,
+    cmd_install, cmd_labels, cmd_recommend, cmd_uninstall, cmd_unused, cmd_upgrade, cmd_usage_scan,
+    cmd_usage_show, cmd_usage_tool, is_installed, scan_known_tools, scan_missing_tools,
+    scan_path_tools, source_for,
+};
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -34,7 +29,6 @@ fn main() -> Result<()> {
         // ============================================
         // CORE COMMANDS
         // ============================================
-
         Commands::Add {
             name,
             description,
@@ -43,7 +37,16 @@ fn main() -> Result<()> {
             install_cmd,
             binary,
             installed,
-        } => cmd_add(&db, name, description, category, source, install_cmd, binary, installed),
+        } => cmd_add(
+            &db,
+            name,
+            description,
+            category,
+            source,
+            install_cmd,
+            binary,
+            installed,
+        ),
 
         Commands::Show { name } => cmd_show(&db, &name),
 
@@ -54,7 +57,6 @@ fn main() -> Result<()> {
         // ============================================
         // SYNC - Unified sync command
         // ============================================
-
         Commands::Sync {
             dry_run,
             scan,
@@ -103,12 +105,18 @@ fn main() -> Result<()> {
         // ============================================
         // DISCOVER - Tool discovery commands
         // ============================================
-
         Commands::Discover(subcmd) => match subcmd {
-            DiscoverCommands::List { installed, category, label, format } => {
-                cmd_list(&db, installed, category, label, &format)
-            }
-            DiscoverCommands::Search { query, github, limit } => {
+            DiscoverCommands::List {
+                installed,
+                category,
+                label,
+                format,
+            } => cmd_list(&db, installed, category, label, &format),
+            DiscoverCommands::Search {
+                query,
+                github,
+                limit,
+            } => {
                 cmd_search(&db, &query)?;
                 if github {
                     println!("\n{}", "GitHub Results:".bold());
@@ -127,7 +135,6 @@ fn main() -> Result<()> {
         // ============================================
         // INSIGHTS - Analytics and health commands
         // ============================================
-
         Commands::Insights(subcmd) => match subcmd {
             InsightsCommands::Usage { tool, limit } => {
                 if let Some(name) = tool {
@@ -145,19 +152,27 @@ fn main() -> Result<()> {
         // ============================================
         // AI - AI-powered features
         // ============================================
-
         Commands::Ai(subcmd) => match subcmd {
             AiCommands::Config(config_cmd) => match config_cmd {
                 AiConfigCommands::Set { provider } => cmd_ai_set(&provider),
                 AiConfigCommands::Show => cmd_ai_show(),
                 AiConfigCommands::Test => cmd_ai_test(),
             },
-            AiCommands::Enrich { categorize, describe, all, dry_run, limit } => {
+            AiCommands::Enrich {
+                categorize,
+                describe,
+                all,
+                dry_run,
+                limit,
+            } => {
                 let do_categorize = categorize || all;
                 let do_describe = describe || all;
 
                 if !do_categorize && !do_describe {
-                    println!("{} Specify --categorize, --describe, or --all", "!".yellow());
+                    println!(
+                        "{} Specify --categorize, --describe, or --all",
+                        "!".yellow()
+                    );
                     println!("  Example: hoard ai enrich --all");
                     return Ok(());
                 }
@@ -166,7 +181,9 @@ fn main() -> Result<()> {
                     cmd_ai_categorize(dry_run)?;
                 }
                 if do_describe {
-                    if do_categorize { println!(); }
+                    if do_categorize {
+                        println!();
+                    }
                     cmd_ai_describe(dry_run, limit)?;
                 }
                 Ok(())
@@ -183,7 +200,6 @@ fn main() -> Result<()> {
         // ============================================
         // WORKFLOW COMMANDS
         // ============================================
-
         Commands::Init { auto } => cmd_init(&db, auto),
 
         Commands::Maintain { auto, dry_run } => cmd_maintain(&db, auto, dry_run),
@@ -193,31 +209,42 @@ fn main() -> Result<()> {
         // ============================================
         // INSTALL/UNINSTALL/UPGRADE
         // ============================================
+        Commands::Install {
+            name,
+            source,
+            version,
+            force,
+        } => cmd_install(&db, &name, source, version, force),
 
-        Commands::Install { name, source, version, force } => {
-            cmd_install(&db, &name, source, version, force)
-        }
+        Commands::Uninstall {
+            name,
+            remove,
+            force,
+        } => cmd_uninstall(&db, &name, remove, force),
 
-        Commands::Uninstall { name, remove, force } => {
-            cmd_uninstall(&db, &name, remove, force)
-        }
+        Commands::Upgrade {
+            name,
+            to,
+            version,
+            force,
+        } => cmd_upgrade(&db, &name, to, version, force),
 
-        Commands::Upgrade { name, to, version, force } => {
-            cmd_upgrade(&db, &name, to, version, force)
-        }
-
-        Commands::Updates { source, cross, tracked, all_versions } => {
-            cmd_updates(&db, source, cross, tracked, all_versions)
-        }
+        Commands::Updates {
+            source,
+            cross,
+            tracked,
+            all_versions,
+        } => cmd_updates(&db, source, cross, tracked, all_versions),
 
         // ============================================
         // BUNDLES & CONFIG
         // ============================================
-
         Commands::Bundle(subcmd) => match subcmd {
-            BundleCommands::Create { name, tools, description } => {
-                cmd_bundle_create(&db, &name, tools, description)
-            }
+            BundleCommands::Create {
+                name,
+                tools,
+                description,
+            } => cmd_bundle_create(&db, &name, tools, description),
             BundleCommands::List => cmd_bundle_list(&db),
             BundleCommands::Show { name } => cmd_bundle_show(&db, &name),
             BundleCommands::Install { name, force } => cmd_bundle_install(&db, &name, force),
@@ -228,34 +255,52 @@ fn main() -> Result<()> {
         },
 
         Commands::Config(subcmd) => match subcmd {
-            ConfigCommands::Link { name, target, source, tool } => {
-                cmd_config_link(&db, &name, &target, &source, tool)
-            }
-            ConfigCommands::Unlink { name, remove_symlink, force } => {
-                cmd_config_unlink(&db, &name, remove_symlink, force)
-            }
+            ConfigCommands::Link {
+                name,
+                target,
+                source,
+                tool,
+            } => cmd_config_link(&db, &name, &target, &source, tool),
+            ConfigCommands::Unlink {
+                name,
+                remove_symlink,
+                force,
+            } => cmd_config_unlink(&db, &name, remove_symlink, force),
             ConfigCommands::List { broken, format } => cmd_config_list(&db, broken, &format),
             ConfigCommands::Show { name } => cmd_config_show(&db, &name),
             ConfigCommands::Sync { dry_run, force } => cmd_config_sync(&db, dry_run, force),
             ConfigCommands::Status => cmd_config_status(&db),
-            ConfigCommands::Edit { name, target, source, tool } => {
-                cmd_config_edit(&db, &name, target, source, tool)
-            }
+            ConfigCommands::Edit {
+                name,
+                target,
+                source,
+                tool,
+            } => cmd_config_edit(&db, &name, target, source, tool),
         },
 
         // ============================================
         // IMPORT/EXPORT
         // ============================================
-
-        Commands::Export { output, format, installed } => cmd_export(&db, output, &format, installed),
-        Commands::Import { file, skip_existing, dry_run } => cmd_import(&db, &file, skip_existing, dry_run),
+        Commands::Export {
+            output,
+            format,
+            installed,
+        } => cmd_export(&db, output, &format, installed),
+        Commands::Import {
+            file,
+            skip_existing,
+            dry_run,
+        } => cmd_import(&db, &file, skip_existing, dry_run),
 
         // ============================================
         // GITHUB (power user)
         // ============================================
-
         Commands::Gh(subcmd) => match subcmd {
-            GhCommands::Sync { dry_run, limit, delay } => cmd_gh_sync(&db, dry_run, limit, delay),
+            GhCommands::Sync {
+                dry_run,
+                limit,
+                delay,
+            } => cmd_gh_sync(&db, dry_run, limit, delay),
             GhCommands::RateLimit => cmd_gh_rate_limit(),
             GhCommands::Backfill { dry_run } => cmd_gh_backfill(&db, dry_run),
             GhCommands::Fetch { name } => cmd_gh_fetch(&db, &name),
@@ -266,7 +311,6 @@ fn main() -> Result<()> {
         // ============================================
         // SHELL COMPLETIONS
         // ============================================
-
         Commands::Completions { shell } => {
             let mut cmd = hoard::Cli::command();
             generate(shell, &mut cmd, "hoard", &mut std::io::stdout());
@@ -276,10 +320,12 @@ fn main() -> Result<()> {
         // ============================================
         // BACKWARD COMPATIBILITY ALIASES
         // ============================================
-
-        Commands::List { installed, category, label, format } => {
-            cmd_list(&db, installed, category, label, &format)
-        }
+        Commands::List {
+            installed,
+            category,
+            label,
+            format,
+        } => cmd_list(&db, installed, category, label, &format),
 
         Commands::Search { query } => cmd_search(&db, &query),
 
@@ -357,7 +403,13 @@ fn cmd_add(
     Ok(())
 }
 
-fn cmd_list(db: &Database, installed_only: bool, category: Option<String>, label: Option<String>, format: &str) -> Result<()> {
+fn cmd_list(
+    db: &Database,
+    installed_only: bool,
+    category: Option<String>,
+    label: Option<String>,
+    format: &str,
+) -> Result<()> {
     // If filtering by label, use the label-specific query
     let tools = if let Some(lbl) = &label {
         db.list_tools_by_label(lbl)?
@@ -399,7 +451,12 @@ fn cmd_list(db: &Database, installed_only: bool, category: Option<String>, label
                     tool.category.as_deref().unwrap_or("-"),
                     tool.source.to_string(),
                     status,
-                    tool.description.as_deref().unwrap_or("").chars().take(30).collect::<String>()
+                    tool.description
+                        .as_deref()
+                        .unwrap_or("")
+                        .chars()
+                        .take(30)
+                        .collect::<String>()
                 );
             }
         }
@@ -449,7 +506,11 @@ fn cmd_show(db: &Database, name: &str) -> Result<()> {
                 println!("\n{}", desc);
             }
 
-            println!("\n{}: {}", "Category".bold(), tool.category.as_deref().unwrap_or("-"));
+            println!(
+                "\n{}: {}",
+                "Category".bold(),
+                tool.category.as_deref().unwrap_or("-")
+            );
             println!("{}: {}", "Source".bold(), tool.source);
 
             let status = if tool.is_installed {
@@ -476,16 +537,25 @@ fn cmd_show(db: &Database, name: &str) -> Result<()> {
 
             // Show usage if available
             if let Ok(Some(usage)) = db.get_usage(&tool.name)
-                && usage.use_count > 0 {
-                    println!("\n{}: {} times", "Usage".bold(), usage.use_count.to_string().cyan());
-                }
+                && usage.use_count > 0
+            {
+                println!(
+                    "\n{}: {} times",
+                    "Usage".bold(),
+                    usage.use_count.to_string().cyan()
+                );
+            }
 
             if let Some(notes) = &tool.notes {
                 println!("\n{}", "Notes:".bold());
                 println!("{}", notes);
             }
 
-            println!("\n{}: {}", "Added".dimmed(), tool.created_at.format("%Y-%m-%d %H:%M"));
+            println!(
+                "\n{}: {}",
+                "Added".dimmed(),
+                tool.created_at.format("%Y-%m-%d %H:%M")
+            );
         }
         None => {
             println!("Tool '{}' not found", name);
@@ -728,9 +798,10 @@ fn fetch_tool_description(tool: &Tool) -> Option<(String, &'static str)> {
 
     // Try package registry first based on source
     if let Some(source) = source_for(&tool.source)
-        && let Some(desc) = source.fetch_description(&pkg) {
-            return Some((desc, source.name()));
-        }
+        && let Some(desc) = source.fetch_description(&pkg)
+    {
+        return Some((desc, source.name()));
+    }
 
     // Fallback to man page, then --help
     ManualSource::fetch_man_description(binary)
@@ -831,7 +902,8 @@ fn cmd_suggest(category: Option<String>) -> Result<()> {
     }
 
     // Group by category
-    let mut by_category: std::collections::HashMap<&str, Vec<&Tool>> = std::collections::HashMap::new();
+    let mut by_category: std::collections::HashMap<&str, Vec<&Tool>> =
+        std::collections::HashMap::new();
     for tool in &filtered {
         let cat = tool.category.as_deref().unwrap_or("other");
         by_category.entry(cat).or_default().push(tool);
@@ -910,12 +982,7 @@ fn cmd_similar(db: &Database, tool_name: &str) -> Result<()> {
             "not installed".dimmed()
         };
 
-        println!(
-            "  {} {} [{}]",
-            t.name.bold(),
-            status,
-            t.source
-        );
+        println!("  {} {} [{}]", t.name.bold(), status, t.source);
         if let Some(desc) = &t.description {
             println!("    {}", desc.dimmed());
         }
@@ -1000,7 +1067,10 @@ fn cmd_info() -> Result<()> {
         let size = metadata.len();
         println!("Size:     {} bytes", size);
     } else {
-        println!("Status:   {} (will be created on first use)", "not created".yellow());
+        println!(
+            "Status:   {} (will be created on first use)",
+            "not created".yellow()
+        );
     }
 
     Ok(())
@@ -1030,9 +1100,10 @@ fn cmd_overview(db: &Database) -> Result<()> {
     let mut tools_with_usage: Vec<(String, i64)> = Vec::new();
     for tool in &tools {
         if let Ok(Some(usage)) = db.get_usage(&tool.name)
-            && usage.use_count > 0 {
-                tools_with_usage.push((tool.name.clone(), usage.use_count));
-            }
+            && usage.use_count > 0
+        {
+            tools_with_usage.push((tool.name.clone(), usage.use_count));
+        }
     }
     tools_with_usage.sort_by(|a, b| b.1.cmp(&a.1));
 
@@ -1040,11 +1111,7 @@ fn cmd_overview(db: &Database) -> Result<()> {
         println!("   (no usage data - run 'hoard sync --usage')");
     } else {
         for (name, count) in tools_with_usage.iter().take(5) {
-            println!(
-                "   {:20} {} uses",
-                name,
-                count.to_string().cyan()
-            );
+            println!("   {:20} {} uses", name, count.to_string().cyan());
         }
     }
     println!();
@@ -1142,7 +1209,10 @@ fn cmd_init(db: &Database, auto: bool) -> Result<()> {
     println!();
     println!("Next steps:");
     println!("  {} - see overview", "hoard insights overview".cyan());
-    println!("  {} - find tools you're missing", "hoard discover missing".cyan());
+    println!(
+        "  {} - find tools you're missing",
+        "hoard discover missing".cyan()
+    );
     println!("  {} - keep things up to date", "hoard maintain".cyan());
 
     Ok(())
@@ -1194,14 +1264,20 @@ fn cmd_cleanup(db: &Database, force: bool, dry_run: bool) -> Result<()> {
     if unused.is_empty() {
         println!("   {} No unused tools found", "+".green());
     } else {
-        println!("   Found {} installed tools with no recorded usage:\n", unused.len());
+        println!(
+            "   Found {} installed tools with no recorded usage:\n",
+            unused.len()
+        );
         for tool in &unused {
             println!("   {} {} ({})", "-".yellow(), tool.name, tool.source);
         }
     }
 
     // Step 2: Check for orphaned entries (not installed, not in usage table)
-    println!("\n{} Checking for orphaned database entries...", "2.".bold());
+    println!(
+        "\n{} Checking for orphaned database entries...",
+        "2.".bold()
+    );
     let all_tools = db.list_tools(false, None)?;
     let orphaned: Vec<_> = all_tools
         .iter()
@@ -1212,7 +1288,10 @@ fn cmd_cleanup(db: &Database, force: bool, dry_run: bool) -> Result<()> {
     if orphaned.is_empty() {
         println!("   {} No orphaned entries found", "+".green());
     } else {
-        println!("   Found {} tools not installed with no usage:\n", orphaned.len());
+        println!(
+            "   Found {} tools not installed with no usage:\n",
+            orphaned.len()
+        );
         for tool in orphaned.iter().take(10) {
             println!("   {} {}", "-".dimmed(), tool.name.dimmed());
         }
@@ -1224,7 +1303,11 @@ fn cmd_cleanup(db: &Database, force: bool, dry_run: bool) -> Result<()> {
             for tool in &orphaned {
                 db.delete_tool(&tool.name)?;
             }
-            println!("   {} Removed {} orphaned entries", "+".green(), orphaned.len());
+            println!(
+                "   {} Removed {} orphaned entries",
+                "+".green(),
+                orphaned.len()
+            );
         }
     }
 
@@ -1300,7 +1383,11 @@ fn cmd_updates(
                 Ok(updates.len())
             }
             Err(e) => {
-                println!("{} ({})", "skipped".dimmed(), e.to_string().chars().take(30).collect::<String>());
+                println!(
+                    "{} ({})",
+                    "skipped".dimmed(),
+                    e.to_string().chars().take(30).collect::<String>()
+                );
                 Ok(0)
             }
         }
@@ -1317,9 +1404,10 @@ fn cmd_updates(
 
     for (name, check_fn) in sources {
         if let Some(ref filter) = source_filter
-            && filter != name {
-                continue;
-            }
+            && filter != name
+        {
+            continue;
+        }
         total_updates += check_source(name, check_fn)?;
     }
 
@@ -1327,11 +1415,7 @@ fn cmd_updates(
     if total_updates == 0 {
         println!("{} All tools are up to date!", "+".green());
     } else {
-        println!(
-            "{} {} update(s) available",
-            "!".yellow(),
-            total_updates
-        );
+        println!("{} {} update(s) available", "!".yellow(), total_updates);
     }
 
     Ok(())
@@ -1395,7 +1479,11 @@ fn cmd_updates_tracked(
                     current.dimmed()
                 );
                 for (i, ver) in versions.iter().enumerate() {
-                    let marker = if i == versions.len() - 1 { "(latest)" } else { "" };
+                    let marker = if i == versions.len() - 1 {
+                        "(latest)"
+                    } else {
+                        ""
+                    };
                     println!("    {} {}", ver.green(), marker.dimmed());
                 }
             }
@@ -1409,16 +1497,17 @@ fn cmd_updates_tracked(
             };
 
             if let Some(latest) = latest
-                && version_is_newer(&latest, &current) {
-                    updates_found += 1;
-                    println!(
-                        "  {} ({}) {} -> {}",
-                        tool.name.bold(),
-                        source.cyan(),
-                        current.dimmed(),
-                        latest.green()
-                    );
-                }
+                && version_is_newer(&latest, &current)
+            {
+                updates_found += 1;
+                println!(
+                    "  {} ({}) {} -> {}",
+                    tool.name.bold(),
+                    source.cyan(),
+                    current.dimmed(),
+                    latest.green()
+                );
+            }
         }
     }
 
@@ -1445,7 +1534,10 @@ fn cmd_updates_tracked(
 fn cmd_updates_cross(db: &Database) -> Result<()> {
     use hoard::updates::*;
 
-    println!("{} Checking apt/snap tools for newer versions on other sources...\n", ">".cyan());
+    println!(
+        "{} Checking apt/snap tools for newer versions on other sources...\n",
+        ">".cyan()
+    );
 
     // Get all apt/snap tools from database with their versions
     let tools = db.list_tools(true, None)?;
@@ -1475,7 +1567,11 @@ fn cmd_updates_cross(db: &Database) -> Result<()> {
         println!("{} No cross-source upgrades found.", "+".green());
         println!("  All apt/snap tools are either up-to-date or not available on cargo/pip/npm.");
     } else {
-        println!("{} {} tool(s) have newer versions on other sources:\n", "!".yellow(), upgrades.len());
+        println!(
+            "{} {} tool(s) have newer versions on other sources:\n",
+            "!".yellow(),
+            upgrades.len()
+        );
 
         for upgrade in &upgrades {
             println!(

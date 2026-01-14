@@ -2,7 +2,7 @@
 
 use super::PackageSource;
 use crate::models::{InstallSource, Tool};
-use crate::scanner::{is_installed, KNOWN_TOOLS};
+use crate::scanner::{KNOWN_TOOLS, is_installed};
 use anyhow::Result;
 use std::process::Command;
 
@@ -16,8 +16,21 @@ const GUI_SECTIONS: &[&str] = &[
 
 /// GUI-related dependencies to skip
 const GUI_DEPS: &[&str] = &[
-    "libgtk", "libqt", "libx11", "libwayland", "libgl", "libvulkan", "libsdl", "libegl", "libgdk",
-    "libwx", "libfltk", "libcairo", "libpango", "libglib", "libgio",
+    "libgtk",
+    "libqt",
+    "libx11",
+    "libwayland",
+    "libgl",
+    "libvulkan",
+    "libsdl",
+    "libegl",
+    "libgdk",
+    "libwx",
+    "libfltk",
+    "libcairo",
+    "libpango",
+    "libglib",
+    "libgio",
 ];
 
 /// Known GUI package names/patterns to skip
@@ -168,9 +181,10 @@ impl PackageSource for AptSource {
                 .installed();
 
             if let Some(desc) = description
-                && !desc.is_empty() {
-                    tool = tool.with_description(desc);
-                }
+                && !desc.is_empty()
+            {
+                tool = tool.with_description(desc);
+            }
 
             tools.push(tool);
         }
@@ -190,11 +204,7 @@ impl PackageSource for AptSource {
         }
 
         let desc = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if desc.is_empty() {
-            None
-        } else {
-            Some(desc)
-        }
+        if desc.is_empty() { None } else { Some(desc) }
     }
 
     fn install_command(&self, package: &str) -> String {

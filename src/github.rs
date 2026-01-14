@@ -3,7 +3,7 @@
 //! Uses the `gh` CLI to query GitHub's API for repository information.
 //! Includes rate limit awareness to avoid hitting GitHub API limits.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::process::Command;
 
@@ -61,8 +61,8 @@ pub fn get_rate_limit() -> Result<RateLimit> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let rate: RateLimit = serde_json::from_str(&stdout)
-        .context("Failed to parse rate limit response")?;
+    let rate: RateLimit =
+        serde_json::from_str(&stdout).context("Failed to parse rate limit response")?;
 
     Ok(rate)
 }
@@ -80,8 +80,8 @@ pub fn get_search_rate_limit() -> Result<RateLimit> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let rate: RateLimit = serde_json::from_str(&stdout)
-        .context("Failed to parse search rate limit response")?;
+    let rate: RateLimit =
+        serde_json::from_str(&stdout).context("Failed to parse search rate limit response")?;
 
     Ok(rate)
 }
@@ -176,8 +176,8 @@ pub fn search_repo(name: &str, source: Option<&str>) -> Result<Option<SearchResu
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let results: Vec<SearchResult> = serde_json::from_str(&stdout)
-        .context("Failed to parse gh search output")?;
+    let results: Vec<SearchResult> =
+        serde_json::from_str(&stdout).context("Failed to parse gh search output")?;
 
     Ok(results.into_iter().next())
 }
@@ -200,8 +200,7 @@ pub fn get_repo_info(owner: &str, repo: &str) -> Result<RepoInfo> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let info: RepoInfo = serde_json::from_str(&stdout)
-        .context("Failed to parse gh api output")?;
+    let info: RepoInfo = serde_json::from_str(&stdout).context("Failed to parse gh api output")?;
 
     Ok(info)
 }
@@ -251,15 +250,15 @@ pub struct TopicMapping {
 impl TopicMapping {
     /// Load mapping from TOML file or use defaults
     pub fn load() -> Self {
-        let config_path = dirs::config_dir()
-            .map(|d| d.join("hoard").join("topic-mapping.toml"));
+        let config_path = dirs::config_dir().map(|d| d.join("hoard").join("topic-mapping.toml"));
 
         if let Some(path) = config_path
             && path.exists()
-                && let Ok(content) = std::fs::read_to_string(&path)
-                    && let Ok(mapping) = Self::parse_toml(&content) {
-                        return mapping;
-                    }
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(mapping) = Self::parse_toml(&content)
+        {
+            return mapping;
+        }
 
         Self::default_mapping()
     }
@@ -280,53 +279,142 @@ impl TopicMapping {
     pub fn default_mapping() -> Self {
         let mut categories = std::collections::HashMap::new();
 
-        categories.insert("search".to_string(), vec![
-            "search", "grep", "regex", "find", "ripgrep", "ag", "ack",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "search".to_string(),
+            vec!["search", "grep", "regex", "find", "ripgrep", "ag", "ack"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
 
-        categories.insert("files".to_string(), vec![
-            "files", "filesystem", "ls", "file-manager", "directory", "tree", "disk",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "files".to_string(),
+            vec![
+                "files",
+                "filesystem",
+                "ls",
+                "file-manager",
+                "directory",
+                "tree",
+                "disk",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
 
-        categories.insert("git".to_string(), vec![
-            "git", "github", "gitlab", "version-control", "vcs",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "git".to_string(),
+            vec!["git", "github", "gitlab", "version-control", "vcs"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
 
-        categories.insert("shell".to_string(), vec![
-            "shell", "terminal", "cli", "command-line", "bash", "zsh", "fish",
-            "prompt", "readline",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "shell".to_string(),
+            vec![
+                "shell",
+                "terminal",
+                "cli",
+                "command-line",
+                "bash",
+                "zsh",
+                "fish",
+                "prompt",
+                "readline",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
 
-        categories.insert("container".to_string(), vec![
-            "docker", "container", "kubernetes", "k8s", "podman", "oci",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "container".to_string(),
+            vec!["docker", "container", "kubernetes", "k8s", "podman", "oci"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
 
-        categories.insert("editor".to_string(), vec![
-            "editor", "vim", "neovim", "emacs", "text-editor", "ide",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "editor".to_string(),
+            vec!["editor", "vim", "neovim", "emacs", "text-editor", "ide"]
+                .into_iter()
+                .map(String::from)
+                .collect(),
+        );
 
-        categories.insert("network".to_string(), vec![
-            "network", "http", "curl", "api", "rest", "web", "dns", "proxy",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "network".to_string(),
+            vec![
+                "network", "http", "curl", "api", "rest", "web", "dns", "proxy",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
 
-        categories.insert("data".to_string(), vec![
-            "json", "yaml", "csv", "jq", "data", "parsing", "xml", "toml",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "data".to_string(),
+            vec![
+                "json", "yaml", "csv", "jq", "data", "parsing", "xml", "toml",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
 
-        categories.insert("system".to_string(), vec![
-            "system", "process", "monitoring", "htop", "top", "performance",
-            "benchmark", "profiling",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "system".to_string(),
+            vec![
+                "system",
+                "process",
+                "monitoring",
+                "htop",
+                "top",
+                "performance",
+                "benchmark",
+                "profiling",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
 
-        categories.insert("security".to_string(), vec![
-            "security", "encryption", "password", "ssh", "gpg", "crypto",
-            "vault", "secrets",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "security".to_string(),
+            vec![
+                "security",
+                "encryption",
+                "password",
+                "ssh",
+                "gpg",
+                "crypto",
+                "vault",
+                "secrets",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
 
-        categories.insert("dev".to_string(), vec![
-            "development", "programming", "compiler", "linter", "formatter",
-            "testing", "debugging", "build",
-        ].into_iter().map(String::from).collect());
+        categories.insert(
+            "dev".to_string(),
+            vec![
+                "development",
+                "programming",
+                "compiler",
+                "linter",
+                "formatter",
+                "testing",
+                "debugging",
+                "build",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        );
 
         Self { categories }
     }
@@ -342,11 +430,17 @@ mod tests {
 
         // "search" and "grep" both map to "search" category (2 points vs 1 for cli->shell)
         let topics = vec!["cli".to_string(), "search".to_string(), "grep".to_string()];
-        assert_eq!(topics_to_category(&topics, &mapping), Some("search".to_string()));
+        assert_eq!(
+            topics_to_category(&topics, &mapping),
+            Some("search".to_string())
+        );
 
         // "git" and "github" both map to "git" category (2 points vs 1 for cli->shell)
         let topics = vec!["git".to_string(), "github".to_string(), "cli".to_string()];
-        assert_eq!(topics_to_category(&topics, &mapping), Some("git".to_string()));
+        assert_eq!(
+            topics_to_category(&topics, &mapping),
+            Some("git".to_string())
+        );
 
         // No matching topics
         let topics = vec!["unknown".to_string(), "random".to_string()];
@@ -359,9 +453,18 @@ mod tests {
 
     #[test]
     fn test_source_to_language_filter() {
-        assert_eq!(source_to_language_filter(Some("cargo")), Some("language:rust"));
-        assert_eq!(source_to_language_filter(Some("pip")), Some("language:python"));
-        assert_eq!(source_to_language_filter(Some("npm")), Some("language:javascript OR language:typescript"));
+        assert_eq!(
+            source_to_language_filter(Some("cargo")),
+            Some("language:rust")
+        );
+        assert_eq!(
+            source_to_language_filter(Some("pip")),
+            Some("language:python")
+        );
+        assert_eq!(
+            source_to_language_filter(Some("npm")),
+            Some("language:javascript OR language:typescript")
+        );
         assert_eq!(source_to_language_filter(Some("go")), Some("language:go"));
         assert_eq!(source_to_language_filter(Some("apt")), None);
         assert_eq!(source_to_language_filter(None), None);

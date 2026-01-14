@@ -1,8 +1,8 @@
 //! Cargo (Rust) package source
 
-use super::{http_agent, PackageSource};
+use super::{PackageSource, http_agent};
 use crate::models::{InstallSource, Tool};
-use crate::scanner::{is_installed, KNOWN_TOOLS};
+use crate::scanner::{KNOWN_TOOLS, is_installed};
 use anyhow::Result;
 use std::process::Command;
 
@@ -18,9 +18,7 @@ impl PackageSource for CargoSource {
     }
 
     fn scan(&self) -> Result<Vec<Tool>> {
-        let output = Command::new("cargo")
-            .args(["install", "--list"])
-            .output()?;
+        let output = Command::new("cargo").args(["install", "--list"]).output()?;
 
         if !output.status.success() {
             return Ok(Vec::new());
@@ -39,8 +37,9 @@ impl PackageSource for CargoSource {
                 let binary = line.trim();
                 if !binary.is_empty() && is_installed(binary) {
                     // Skip if already in KNOWN_TOOLS (we have better metadata there)
-                    let dominated =
-                        KNOWN_TOOLS.iter().any(|kt| kt.name == crate_name || kt.binary == binary);
+                    let dominated = KNOWN_TOOLS
+                        .iter()
+                        .any(|kt| kt.name == crate_name || kt.binary == binary);
                     if !dominated {
                         let mut tool = Tool::new(crate_name)
                             .with_source(InstallSource::Cargo)

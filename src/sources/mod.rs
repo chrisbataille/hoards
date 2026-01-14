@@ -212,7 +212,10 @@ mod tests {
         assert_eq!(source.name(), "cargo");
         assert_eq!(source.install_source(), InstallSource::Cargo);
         assert_eq!(source.install_command("ripgrep"), "cargo install ripgrep");
-        assert_eq!(source.uninstall_command("ripgrep"), "cargo uninstall ripgrep");
+        assert_eq!(
+            source.uninstall_command("ripgrep"),
+            "cargo uninstall ripgrep"
+        );
     }
 
     #[test]
@@ -221,7 +224,10 @@ mod tests {
         assert_eq!(source.name(), "pip");
         assert_eq!(source.install_source(), InstallSource::Pip);
         assert_eq!(source.install_command("httpie"), "pip install httpie");
-        assert_eq!(source.uninstall_command("httpie"), "pip uninstall -y httpie");
+        assert_eq!(
+            source.uninstall_command("httpie"),
+            "pip uninstall -y httpie"
+        );
     }
 
     #[test]
@@ -229,8 +235,14 @@ mod tests {
         let source = NpmSource;
         assert_eq!(source.name(), "npm");
         assert_eq!(source.install_source(), InstallSource::Npm);
-        assert_eq!(source.install_command("prettier"), "npm install -g prettier");
-        assert_eq!(source.uninstall_command("prettier"), "npm uninstall -g prettier");
+        assert_eq!(
+            source.install_command("prettier"),
+            "npm install -g prettier"
+        );
+        assert_eq!(
+            source.uninstall_command("prettier"),
+            "npm uninstall -g prettier"
+        );
     }
 
     #[test]

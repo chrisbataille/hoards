@@ -8,7 +8,7 @@
 
 use crate::config::{AiProvider, HoardConfig};
 use crate::models::{Bundle, Tool};
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -163,7 +163,9 @@ pub fn categorize_prompt(tools: &[Tool], existing_categories: &[String]) -> Stri
 }
 
 /// Parse categorization response from AI
-pub fn parse_categorize_response(response: &str) -> Result<std::collections::HashMap<String, String>> {
+pub fn parse_categorize_response(
+    response: &str,
+) -> Result<std::collections::HashMap<String, String>> {
     let json_str = extract_json_object(response)?;
 
     let map: std::collections::HashMap<String, String> =
@@ -183,7 +185,9 @@ pub fn describe_prompt(tools: &[Tool]) -> String {
 }
 
 /// Parse description response from AI
-pub fn parse_describe_response(response: &str) -> Result<std::collections::HashMap<String, String>> {
+pub fn parse_describe_response(
+    response: &str,
+) -> Result<std::collections::HashMap<String, String>> {
     let json_str = extract_json_object(response)?;
 
     let map: std::collections::HashMap<String, String> =
@@ -271,8 +275,12 @@ pub fn parse_bundle_response(response: &str) -> Result<Vec<BundleSuggestion>> {
 
 /// Extract a JSON object from a response that might contain extra text
 fn extract_json_object(response: &str) -> Result<String> {
-    let start = response.find('{').context("No JSON object found in response")?;
-    let end = response.rfind('}').context("No closing brace found in response")?;
+    let start = response
+        .find('{')
+        .context("No JSON object found in response")?;
+    let end = response
+        .rfind('}')
+        .context("No closing brace found in response")?;
 
     if end <= start {
         bail!("Invalid JSON structure in response");
@@ -283,8 +291,12 @@ fn extract_json_object(response: &str) -> Result<String> {
 
 /// Extract a JSON array from a response that might contain extra text
 fn extract_json_array(response: &str) -> Result<String> {
-    let start = response.find('[').context("No JSON array found in response")?;
-    let end = response.rfind(']').context("No closing bracket found in response")?;
+    let start = response
+        .find('[')
+        .context("No JSON array found in response")?;
+    let end = response
+        .rfind(']')
+        .context("No closing bracket found in response")?;
 
     if end <= start {
         bail!("Invalid JSON structure in response");
