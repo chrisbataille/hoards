@@ -132,6 +132,38 @@ Tool help outputs:
 {{HELP_OUTPUTS}}
 "#;
 
+const DEFAULT_DISCOVERY_PROMPT: &str = r#"You are a CLI tool expert. Based on the user's description of what they're working on, recommend relevant command-line tools.
+
+User's context: {{QUERY}}
+
+Already installed tools: {{INSTALLED_TOOLS}}
+
+Guidelines:
+1. Recommend 5-10 highly relevant tools
+2. Categorize as "essential" (must-have) or "recommended" (nice-to-have)
+3. Don't recommend tools they already have installed
+4. Focus on well-maintained, popular tools
+5. Include the exact install command for each
+6. Be specific about why each tool is relevant
+
+Respond with JSON:
+{
+  "summary": "Brief description of the recommendations",
+  "tools": [
+    {
+      "name": "tool-name",
+      "binary": "binary-name",
+      "description": "What it does (1 sentence)",
+      "category": "essential|recommended",
+      "reason": "Why it's relevant to their query",
+      "source": "cargo|pip|npm|apt|brew",
+      "install_cmd": "cargo install tool-name",
+      "github": "owner/repo"
+    }
+  ]
+}
+"#;
+
 // ==================== Prompt loading ====================
 
 /// Get the prompts directory path
@@ -554,6 +586,34 @@ pub struct CachedCheatsheet {
     pub cheatsheet: Cheatsheet,
 }
 
+// ==================== Discovery types ====================
+
+/// A tool recommendation from AI discovery
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ToolRecommendation {
+    pub name: String,
+    #[serde(default)]
+    pub binary: Option<String>,
+    pub description: String,
+    pub category: String, // "essential" or "recommended"
+    pub reason: String,
+    pub source: String,
+    pub install_cmd: String,
+    #[serde(default)]
+    pub github: Option<String>,
+    #[serde(skip)]
+    pub stars: Option<u64>,
+    #[serde(skip)]
+    pub installed: bool,
+}
+
+/// Discovery response from AI
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct DiscoveryResponse {
+    pub summary: String,
+    pub tools: Vec<ToolRecommendation>,
+}
+
 /// Get tool version by running `tool --version`
 pub fn get_tool_version(binary: &str) -> Option<String> {
     use std::process::Command;
@@ -624,6 +684,29 @@ pub fn bundle_cheatsheet_prompt(
         .replace("{{BUNDLE_NAME}}", bundle_name)
         .replace("{{TOOL_LIST}}", &tool_list)
         .replace("{{HELP_OUTPUTS}}", &final_help)
+}
+
+/// Generate a discovery prompt from user query and context
+pub fn discovery_prompt(query: &str, installed_tools: &[String]) -> String {
+    let template = load_prompt("discovery", DEFAULT_DISCOVERY_PROMPT);
+
+    let installed_list = if installed_tools.is_empty() {
+        "None".to_string()
+    } else {
+        installed_tools.join(", ")
+    };
+
+    template
+        .replace("{{QUERY}}", query)
+        .replace("{{INSTALLED_TOOLS}}", &installed_list)
+}
+
+/// Parse discovery response from AI
+pub fn parse_discovery_response(response: &str) -> Result<DiscoveryResponse> {
+    let json_str = extract_json_object(response)?;
+    let discovery: DiscoveryResponse =
+        serde_json::from_str(&json_str).context("Failed to parse discovery response")?;
+    Ok(discovery)
 }
 
 /// Parse cheatsheet response from AI

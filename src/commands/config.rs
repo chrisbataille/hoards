@@ -146,6 +146,11 @@ pub fn cmd_config_unlink(
 
 /// List all managed configs
 pub fn cmd_config_list(db: &Database, broken_only: bool, format: &str) -> Result<()> {
+    use crate::icons::config_status_icon;
+    use comfy_table::{
+        Cell, Color, ContentArrangement, Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL,
+    };
+
     let configs = db.list_configs()?;
 
     if configs.is_empty() {
@@ -162,60 +167,58 @@ pub fn cmd_config_list(db: &Database, broken_only: bool, format: &str) -> Result
         return Ok(());
     }
 
-    // Table format
-    println!(
-        "{:<20} {:<30} {:<30} {:<8}",
-        "NAME".bold(),
-        "TARGET".bold(),
-        "SOURCE".bold(),
-        "STATUS".bold()
-    );
-    println!("{}", "-".repeat(90));
+    let term_width = terminal_size::terminal_size()
+        .map(|(w, _)| w.0)
+        .unwrap_or(120);
 
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(term_width)
+        .set_header(vec![
+            Cell::new("⚙ Config").fg(Color::Cyan),
+            Cell::new("Target").fg(Color::Cyan),
+            Cell::new("Source").fg(Color::Cyan),
+            Cell::new("✓").fg(Color::Cyan),
+        ]);
+
+    let mut shown = 0;
     for config in configs {
         let target_path = expand_path(&config.target_path);
         let source_path = expand_path(&config.source_path);
 
-        let status = if !source_path.exists() {
-            "missing".red().to_string()
+        let (status_text, status_color) = if !source_path.exists() {
+            ("missing", Color::Red)
         } else if is_valid_symlink(&target_path, &source_path) {
-            "linked".green().to_string()
+            ("linked", Color::Green)
         } else if target_path.exists() {
-            "conflict".yellow().to_string()
+            ("conflict", Color::Yellow)
         } else {
-            "unlinked".dimmed().to_string()
+            ("unlinked", Color::Grey)
         };
 
         // Filter if showing broken only
-        if broken_only && (status.contains("linked") || status.contains("unlinked")) {
+        if broken_only && (status_text == "linked" || status_text == "unlinked") {
             continue;
         }
 
-        // Truncate paths for display
-        let target_display = if config.target_path.len() > 28 {
-            format!(
-                "...{}",
-                &config.target_path[config.target_path.len() - 25..]
-            )
-        } else {
-            config.target_path.clone()
-        };
-
-        let source_display = if config.source_path.len() > 28 {
-            format!(
-                "...{}",
-                &config.source_path[config.source_path.len() - 25..]
-            )
-        } else {
-            config.source_path.clone()
-        };
-
-        println!(
-            "{:<20} {:<30} {:<30} {:<8}",
-            config.name, target_display, source_display, status
-        );
+        table.add_row(vec![
+            Cell::new(&config.name),
+            Cell::new(&config.target_path),
+            Cell::new(&config.source_path),
+            Cell::new(config_status_icon(status_text)).fg(status_color),
+        ]);
+        shown += 1;
     }
 
+    println!("{table}");
+    println!(
+        "{} 🔗 linked  ❌ missing  ⚠ conflict  ◯ unlinked",
+        "".dimmed()
+    );
+    println!("{} {} configs", ">".cyan(), shown);
     Ok(())
 }
 

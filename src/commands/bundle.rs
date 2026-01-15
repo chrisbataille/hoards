@@ -42,6 +42,10 @@ pub fn cmd_bundle_create(
 
 /// List all bundles
 pub fn cmd_bundle_list(db: &Database) -> Result<()> {
+    use comfy_table::{
+        Cell, Color, ContentArrangement, Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL,
+    };
+
     let bundles = db.list_bundles()?;
 
     if bundles.is_empty() {
@@ -49,22 +53,44 @@ pub fn cmd_bundle_list(db: &Database) -> Result<()> {
         return Ok(());
     }
 
-    println!("{}", "Bundles".bold());
-    println!("{}", "=".repeat(40));
+    let term_width = terminal_size::terminal_size()
+        .map(|(w, _)| w.0)
+        .unwrap_or(120);
 
-    for bundle in bundles {
-        println!("\n{} ({} tools)", bundle.name.bold(), bundle.tools.len());
-        if let Some(desc) = &bundle.description {
-            println!("  {}", desc.dimmed());
-        }
-        println!("  {}", bundle.tools.join(", ").cyan());
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(term_width)
+        .set_header(vec![
+            Cell::new("📦 Bundle").fg(Color::Cyan),
+            Cell::new("#").fg(Color::Cyan),
+            Cell::new("Description").fg(Color::Cyan),
+        ]);
+
+    for bundle in &bundles {
+        let desc = bundle.description.as_deref().unwrap_or("-");
+
+        table.add_row(vec![
+            Cell::new(&bundle.name),
+            Cell::new(bundle.tools.len()),
+            Cell::new(desc),
+        ]);
     }
 
+    println!("{table}");
+    println!("{} {} bundles", ">".cyan(), bundles.len());
     Ok(())
 }
 
 /// Show details of a specific bundle
 pub fn cmd_bundle_show(db: &Database, name: &str) -> Result<()> {
+    use crate::icons::{source_icon, status_icon};
+    use comfy_table::{
+        Cell, Color, ContentArrangement, Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL,
+    };
+
     let bundle = match db.get_bundle(name)? {
         Some(b) => b,
         None => {
@@ -73,34 +99,64 @@ pub fn cmd_bundle_show(db: &Database, name: &str) -> Result<()> {
         }
     };
 
-    println!("{}", bundle.name.bold());
-    println!("{}", "=".repeat(bundle.name.len()));
-
+    println!("{} {}", "📦 Bundle:".bold(), bundle.name.cyan());
     if let Some(desc) = &bundle.description {
-        println!("\n{}", desc);
+        println!("{}", desc.dimmed());
     }
+    println!();
 
-    println!("\n{} ({}):", "Tools".bold(), bundle.tools.len());
+    let term_width = terminal_size::terminal_size()
+        .map(|(w, _)| w.0)
+        .unwrap_or(120);
 
+    let mut table = Table::new();
+    table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(term_width)
+        .set_header(vec![
+            Cell::new("Tool").fg(Color::Cyan),
+            Cell::new("Src").fg(Color::Cyan),
+            Cell::new("✓").fg(Color::Cyan),
+            Cell::new("Description").fg(Color::Cyan),
+        ]);
+
+    let mut installed_count = 0;
     for tool_name in &bundle.tools {
-        // Check if tool is in database and get its info
         if let Some(tool) = db.get_tool_by_name(tool_name)? {
-            let status = if tool.is_installed {
-                "installed".green()
+            let src_icon = source_icon(&tool.source.to_string());
+            let (status, color) = if tool.is_installed {
+                installed_count += 1;
+                (status_icon(true), Color::Green)
             } else {
-                "missing".red()
+                (status_icon(false), Color::Red)
             };
-            println!(
-                "  {} ({}) [{}]",
-                tool_name,
-                tool.source.to_string().cyan(),
-                status
-            );
+            let desc = tool.description.as_deref().unwrap_or("-");
+            table.add_row(vec![
+                Cell::new(tool_name),
+                Cell::new(src_icon),
+                Cell::new(status).fg(color),
+                Cell::new(desc),
+            ]);
         } else {
-            println!("  {} ({})", tool_name, "not in db".dimmed());
+            table.add_row(vec![
+                Cell::new(tool_name),
+                Cell::new("?"),
+                Cell::new("⚠").fg(Color::Yellow),
+                Cell::new("not in database"),
+            ]);
         }
     }
 
+    println!("{table}");
+    crate::icons::print_legend_compact();
+    println!(
+        "{} {}/{} installed",
+        ">".cyan(),
+        installed_count,
+        bundle.tools.len()
+    );
     Ok(())
 }
 

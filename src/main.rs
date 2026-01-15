@@ -11,16 +11,17 @@ use hoards::{
     AiCommands, AiConfigCommands, BundleCommands, Cli, Commands, CompletionsCommands,
     ConfigCommands, Database, DiscoverCommands, GhCommands, HoardConfig, InsightsCommands,
     InstallSource, KNOWN_TOOLS, Tool, UsageCommands, all_sources, cmd_ai_bundle_cheatsheet,
-    cmd_ai_categorize, cmd_ai_cheatsheet, cmd_ai_describe, cmd_ai_extract, cmd_ai_set, cmd_ai_show,
-    cmd_ai_suggest_bundle, cmd_ai_test, cmd_bundle_add, cmd_bundle_create, cmd_bundle_delete,
-    cmd_bundle_install, cmd_bundle_list, cmd_bundle_remove, cmd_bundle_show, cmd_bundle_update,
-    cmd_completions_install, cmd_completions_status, cmd_completions_uninstall, cmd_config_edit,
-    cmd_config_link, cmd_config_list, cmd_config_show, cmd_config_status, cmd_config_sync,
-    cmd_config_unlink, cmd_doctor, cmd_edit, cmd_export, cmd_gh_backfill, cmd_gh_fetch,
-    cmd_gh_info, cmd_gh_rate_limit, cmd_gh_search, cmd_gh_sync, cmd_import, cmd_install,
-    cmd_labels, cmd_recommend, cmd_uninstall, cmd_unused, cmd_upgrade, cmd_usage_config,
-    cmd_usage_init, cmd_usage_log, cmd_usage_reset, cmd_usage_scan, cmd_usage_show, cmd_usage_tool,
-    is_installed, scan_known_tools, scan_missing_tools, scan_path_tools, source_for,
+    cmd_ai_categorize, cmd_ai_cheatsheet, cmd_ai_describe, cmd_ai_discover, cmd_ai_extract,
+    cmd_ai_set, cmd_ai_show, cmd_ai_suggest_bundle, cmd_ai_test, cmd_bundle_add, cmd_bundle_create,
+    cmd_bundle_delete, cmd_bundle_install, cmd_bundle_list, cmd_bundle_remove, cmd_bundle_show,
+    cmd_bundle_update, cmd_completions_install, cmd_completions_status, cmd_completions_uninstall,
+    cmd_config_edit, cmd_config_link, cmd_config_list, cmd_config_show, cmd_config_status,
+    cmd_config_sync, cmd_config_unlink, cmd_doctor, cmd_edit, cmd_export, cmd_gh_backfill,
+    cmd_gh_fetch, cmd_gh_info, cmd_gh_rate_limit, cmd_gh_search, cmd_gh_sync, cmd_import,
+    cmd_install, cmd_labels, cmd_recommend, cmd_uninstall, cmd_unused, cmd_upgrade,
+    cmd_usage_config, cmd_usage_init, cmd_usage_log, cmd_usage_reset, cmd_usage_scan,
+    cmd_usage_show, cmd_usage_tool, is_installed, scan_known_tools, scan_missing_tools,
+    scan_path_tools, source_for,
 };
 
 fn main() -> Result<()> {
@@ -215,6 +216,12 @@ fn main() -> Result<()> {
                     (Some(_), Some(_)) => unreachable!(), // conflicts_with handles this
                 }
             }
+            AiCommands::Discover {
+                query,
+                limit,
+                no_stars,
+                dry_run,
+            } => cmd_ai_discover(&db, &query, limit, no_stars, dry_run),
             // Backward compatibility aliases
             AiCommands::Set { provider } => cmd_ai_set(&provider),
             AiCommands::ShowConfig => cmd_ai_show(),
@@ -458,6 +465,11 @@ fn cmd_list(
     label: Option<String>,
     format: &str,
 ) -> Result<()> {
+    use comfy_table::{
+        Cell, Color, ContentArrangement, Table, modifiers::UTF8_ROUND_CORNERS, presets::UTF8_FULL,
+    };
+    use hoards::icons::{category_icon, print_legend_compact, source_icon, status_icon};
+
     // If filtering by label, use the label-specific query
     let tools = if let Some(lbl) = &label {
         db.list_tools_by_label(lbl)?
@@ -475,38 +487,51 @@ fn cmd_list(
             println!("{}", serde_json::to_string_pretty(&tools)?);
         }
         _ => {
-            // Table format
-            println!(
-                "{:20} {:12} {:10} {:8} {}",
-                "NAME".bold(),
-                "CATEGORY".bold(),
-                "SOURCE".bold(),
-                "STATUS".bold(),
-                "DESCRIPTION".bold()
-            );
-            println!("{}", "-".repeat(80));
+            let term_width = terminal_size::terminal_size()
+                .map(|(w, _)| w.0)
+                .unwrap_or(120);
 
-            for tool in tools {
-                let status = if tool.is_installed {
-                    "installed".green()
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .apply_modifier(UTF8_ROUND_CORNERS)
+                .set_content_arrangement(ContentArrangement::Dynamic)
+                .set_width(term_width)
+                .set_header(vec![
+                    Cell::new("Name").fg(Color::Cyan),
+                    Cell::new("Cat").fg(Color::Cyan),
+                    Cell::new("Src").fg(Color::Cyan),
+                    Cell::new("✓").fg(Color::Cyan),
+                    Cell::new("Description").fg(Color::Cyan),
+                ]);
+
+            for tool in &tools {
+                let cat = tool.category.as_deref().unwrap_or("-");
+                let cat_display = format!("{} {}", category_icon(cat), cat);
+
+                let src = tool.source.to_string();
+                let src_display = source_icon(&src).to_string();
+
+                let status_cell = if tool.is_installed {
+                    Cell::new(status_icon(true)).fg(Color::Green)
                 } else {
-                    "missing".red()
+                    Cell::new(status_icon(false)).fg(Color::Red)
                 };
 
-                println!(
-                    "{:20} {:12} {:10} {:8} {}",
-                    tool.name,
-                    tool.category.as_deref().unwrap_or("-"),
-                    tool.source.to_string(),
-                    status,
-                    tool.description
-                        .as_deref()
-                        .unwrap_or("")
-                        .chars()
-                        .take(30)
-                        .collect::<String>()
-                );
+                let desc = tool.description.as_deref().unwrap_or("");
+
+                table.add_row(vec![
+                    Cell::new(&tool.name),
+                    Cell::new(cat_display),
+                    Cell::new(src_display),
+                    status_cell,
+                    Cell::new(desc),
+                ]);
             }
+
+            println!("{table}");
+            print_legend_compact();
+            println!("{} {} tools", ">".cyan(), tools.len());
         }
     }
 

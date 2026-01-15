@@ -354,11 +354,11 @@ hoard ai discover "I'm setting up a Kubernetes development environment"
 ```
 
 **Tasks:**
-- [ ] Create discovery prompt template
-- [ ] Implement natural language query handling
-- [ ] Query GitHub for tool popularity
-- [ ] Present categorized suggestions
-- [ ] Allow batch installation
+- [x] Create discovery prompt template
+- [x] Implement natural language query handling
+- [x] Query GitHub for tool popularity
+- [x] Present categorized suggestions
+- [x] Allow batch installation
 
 ---
 

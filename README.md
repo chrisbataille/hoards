@@ -179,6 +179,12 @@ hoards ai suggest-bundle --count 3  # Suggest 3 bundles
 hoards ai cheatsheet <tool>         # Generate quick reference
 hoards ai cheatsheet ripgrep        # Example: ripgrep cheatsheet
 hoards ai cheatsheet git --refresh  # Regenerate cached cheatsheet
+
+# Contextual Discovery
+hoards ai discover "<query>"        # Find tools for your workflow
+hoards ai discover "kubernetes dev" # Example: K8s development tools
+hoards ai discover "data science" --limit 5  # Limit results
+hoards ai discover "rust cli" --dry-run      # Show without prompting
 ```
 
 ### Config Management

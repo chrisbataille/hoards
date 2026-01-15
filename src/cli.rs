@@ -606,6 +606,27 @@ pub enum AiCommands {
         refresh: bool,
     },
 
+    /// Discover tools based on natural language description
+    ///
+    /// Describe what you're working on and get AI-powered recommendations
+    /// for relevant tools, with GitHub popularity and install options.
+    Discover {
+        /// What you're looking for (e.g., "kubernetes development", "rust CLI tools")
+        query: String,
+
+        /// Maximum number of recommendations
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+
+        /// Skip GitHub stars lookup (faster)
+        #[arg(long)]
+        no_stars: bool,
+
+        /// Just show recommendations, don't prompt to install
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     // Hidden aliases for backward compatibility
     /// Set the AI provider (use 'ai config set' instead)
     #[command(hide = true)]
