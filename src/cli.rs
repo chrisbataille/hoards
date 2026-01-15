@@ -627,6 +627,29 @@ pub enum AiCommands {
         dry_run: bool,
     },
 
+    /// Analyze your CLI usage and suggest optimizations
+    ///
+    /// Detects when you use traditional Unix tools but have modern alternatives installed.
+    /// Identifies high-value unused tools and provides personalized tips.
+    #[command(after_help = "Examples:
+  hoards ai analyze              # Full analysis with AI insights
+  hoards ai analyze --no-ai      # Static rules only (fast)
+  hoards ai analyze --json       # JSON output for scripts
+  hoards ai analyze --min-uses 5 # Lower threshold")]
+    Analyze {
+        /// Output as JSON for programmatic use
+        #[arg(long)]
+        json: bool,
+
+        /// Skip AI-generated insights (faster, static rules only)
+        #[arg(long)]
+        no_ai: bool,
+
+        /// Minimum usage count to consider a traditional tool (default: 10)
+        #[arg(long, default_value = "10")]
+        min_uses: i64,
+    },
+
     // Hidden aliases for backward compatibility
     /// Set the AI provider (use 'ai config set' instead)
     #[command(hide = true)]

@@ -9,6 +9,7 @@
 use crate::config::{AiProvider, HoardConfig};
 use crate::models::{Bundle, Tool};
 use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -163,6 +164,180 @@ Respond with JSON:
   ]
 }
 "#;
+
+const DEFAULT_ANALYZE_PROMPT: &str = r#"Analyze this CLI usage data and provide a brief personalized insight.
+
+Traditional tool usage (from shell history):
+{{TRADITIONAL_USAGE}}
+
+Modern replacement tools installed:
+{{MODERN_TOOLS}}
+
+Unused installed tools with high potential:
+{{UNUSED_TOOLS}}
+
+Provide a brief (2-3 sentence) personalized insight about:
+1. The user's apparent workflow patterns
+2. Which specific unused tools would benefit them most based on their usage
+
+Respond with JSON:
+{"insight": "Your personalized analysis here"}
+"#;
+
+// ==================== Modern tool replacements ====================
+
+/// A mapping from a traditional Unix tool to its modern replacement
+#[derive(Debug, Clone)]
+pub struct ToolReplacement {
+    /// Traditional tool name (e.g., "grep")
+    pub traditional: &'static str,
+    /// Modern replacement tool name (e.g., "ripgrep")
+    pub modern: &'static str,
+    /// Binary name of the modern tool (e.g., "rg")
+    pub modern_binary: &'static str,
+    /// Suggested action/alias (e.g., "alias grep='rg'")
+    pub tip: &'static str,
+    /// Benefit description (e.g., "10x faster")
+    pub benefit: &'static str,
+}
+
+/// Known mappings of traditional tools to modern replacements
+pub const MODERN_REPLACEMENTS: &[ToolReplacement] = &[
+    ToolReplacement {
+        traditional: "grep",
+        modern: "ripgrep",
+        modern_binary: "rg",
+        tip: "alias grep='rg'",
+        benefit: "10x faster regex search",
+    },
+    ToolReplacement {
+        traditional: "find",
+        modern: "fd",
+        modern_binary: "fd",
+        tip: "fd <pattern>",
+        benefit: "5x faster, simpler syntax",
+    },
+    ToolReplacement {
+        traditional: "cat",
+        modern: "bat",
+        modern_binary: "bat",
+        tip: "alias cat='bat'",
+        benefit: "syntax highlighting, git integration",
+    },
+    ToolReplacement {
+        traditional: "ls",
+        modern: "eza",
+        modern_binary: "eza",
+        tip: "alias ls='eza'",
+        benefit: "git status, icons, better colors",
+    },
+    ToolReplacement {
+        traditional: "du",
+        modern: "dust",
+        modern_binary: "dust",
+        tip: "dust",
+        benefit: "intuitive visual output",
+    },
+    ToolReplacement {
+        traditional: "df",
+        modern: "duf",
+        modern_binary: "duf",
+        tip: "duf",
+        benefit: "better formatting, colors",
+    },
+    ToolReplacement {
+        traditional: "ps",
+        modern: "procs",
+        modern_binary: "procs",
+        tip: "procs",
+        benefit: "structured output, colors",
+    },
+    ToolReplacement {
+        traditional: "top",
+        modern: "btop",
+        modern_binary: "btop",
+        tip: "btop",
+        benefit: "interactive TUI, resource graphs",
+    },
+    ToolReplacement {
+        traditional: "htop",
+        modern: "btop",
+        modern_binary: "btop",
+        tip: "btop",
+        benefit: "more visual, better resource graphs",
+    },
+    ToolReplacement {
+        traditional: "sed",
+        modern: "sd",
+        modern_binary: "sd",
+        tip: "sd 'old' 'new' file",
+        benefit: "simpler syntax, no escaping",
+    },
+    ToolReplacement {
+        traditional: "diff",
+        modern: "delta",
+        modern_binary: "delta",
+        tip: "git config core.pager delta",
+        benefit: "syntax highlighting, side-by-side",
+    },
+    ToolReplacement {
+        traditional: "man",
+        modern: "tldr",
+        modern_binary: "tldr",
+        tip: "tldr <command>",
+        benefit: "practical examples, concise",
+    },
+    ToolReplacement {
+        traditional: "curl",
+        modern: "xh",
+        modern_binary: "xh",
+        tip: "xh httpbin.org/get",
+        benefit: "cleaner output, easier syntax",
+    },
+    ToolReplacement {
+        traditional: "cut",
+        modern: "choose",
+        modern_binary: "choose",
+        tip: "choose -f 1,3",
+        benefit: "human-friendly field selection",
+    },
+    ToolReplacement {
+        traditional: "ping",
+        modern: "gping",
+        modern_binary: "gping",
+        tip: "gping google.com",
+        benefit: "graphical ping visualization",
+    },
+];
+
+// ==================== Analyze types ====================
+
+/// An optimization tip from usage analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeTip {
+    pub traditional: String,
+    pub traditional_uses: i64,
+    pub modern: String,
+    pub modern_binary: String,
+    pub benefit: String,
+    pub action: String,
+}
+
+/// An underutilized installed tool
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnderutilizedTool {
+    pub name: String,
+    pub description: Option<String>,
+    pub stars: Option<u64>,
+}
+
+/// Result of usage analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisResult {
+    pub tips: Vec<AnalyzeTip>,
+    pub underutilized: Vec<UnderutilizedTool>,
+    pub ai_insight: Option<String>,
+}
 
 // ==================== Prompt loading ====================
 
@@ -707,6 +882,61 @@ pub fn parse_discovery_response(response: &str) -> Result<DiscoveryResponse> {
     let discovery: DiscoveryResponse =
         serde_json::from_str(&json_str).context("Failed to parse discovery response")?;
     Ok(discovery)
+}
+
+/// Generate an analyze prompt from usage data
+pub fn analyze_prompt(
+    traditional_usage: &[(String, i64)],
+    modern_tools: &[String],
+    unused_tools: &[String],
+) -> String {
+    let template = load_prompt("analyze", DEFAULT_ANALYZE_PROMPT);
+
+    let traditional_str = if traditional_usage.is_empty() {
+        "None detected".to_string()
+    } else {
+        traditional_usage
+            .iter()
+            .map(|(cmd, count)| format!("{} ({}x)", cmd, count))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let modern_str = if modern_tools.is_empty() {
+        "None".to_string()
+    } else {
+        modern_tools.join(", ")
+    };
+
+    let unused_str = if unused_tools.is_empty() {
+        "None".to_string()
+    } else {
+        unused_tools.join(", ")
+    };
+
+    template
+        .replace("{{TRADITIONAL_USAGE}}", &traditional_str)
+        .replace("{{MODERN_TOOLS}}", &modern_str)
+        .replace("{{UNUSED_TOOLS}}", &unused_str)
+}
+
+/// Parse analyze insight response from AI
+pub fn parse_analyze_response(response: &str) -> Result<String> {
+    let json_str = extract_json_object(response)?;
+
+    #[derive(serde::Deserialize)]
+    struct AnalyzeInsight {
+        insight: String,
+    }
+
+    let insight: AnalyzeInsight =
+        serde_json::from_str(&json_str).context("Failed to parse analyze response")?;
+    Ok(insight.insight)
+}
+
+/// Check if a binary is installed on the system
+pub fn is_binary_installed(binary: &str) -> bool {
+    which::which(binary).is_ok()
 }
 
 /// Parse cheatsheet response from AI
