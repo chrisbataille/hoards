@@ -12,6 +12,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum Commands {
     // ============================================
     // CORE COMMANDS
@@ -415,6 +416,7 @@ pub enum Commands {
 // ============================================
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum DiscoverCommands {
     /// List tools in the database
     #[command(alias = "ls")]
@@ -493,6 +495,7 @@ pub enum DiscoverCommands {
 // ============================================
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum InsightsCommands {
     /// Show usage statistics
     Usage {
@@ -526,6 +529,7 @@ pub enum InsightsCommands {
 // ============================================
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum AiCommands {
     /// Configure AI provider
     #[command(subcommand)]
@@ -640,6 +644,7 @@ pub enum AiCommands {
 }
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum AiConfigCommands {
     /// Set the AI provider to use
     Set {
@@ -659,6 +664,7 @@ pub enum AiConfigCommands {
 // ============================================
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum GhCommands {
     /// Sync tools with GitHub (use 'sync --github' instead for most cases)
     #[command(hide = true)]
@@ -714,6 +720,7 @@ pub enum GhCommands {
 // ============================================
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum UsageCommands {
     /// Scan shell history and update usage counts
     Scan {
@@ -768,6 +775,7 @@ pub enum UsageCommands {
 }
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum CompletionsCommands {
     /// Generate completions and print to stdout
     Generate {
@@ -803,6 +811,7 @@ pub enum CompletionsCommands {
 // ============================================
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum BundleCommands {
     /// Create a new bundle
     Create {
@@ -883,6 +892,7 @@ pub enum BundleCommands {
 // ============================================
 
 #[derive(Subcommand)]
+#[non_exhaustive]
 pub enum ConfigCommands {
     /// Link a config directory to be managed by hoard
     Link {

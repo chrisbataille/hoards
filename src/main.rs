@@ -132,6 +132,7 @@ fn main() -> Result<()> {
             DiscoverCommands::Recommended { count } => cmd_recommend(&db, count),
             DiscoverCommands::Similar { tool } => cmd_similar(&db, &tool),
             DiscoverCommands::Trending { category, limit } => cmd_trending(&db, category, limit),
+            _ => unreachable!("all variants covered"),
         },
 
         // ============================================
@@ -149,6 +150,7 @@ fn main() -> Result<()> {
             InsightsCommands::Health { fix } => cmd_doctor(&db, fix),
             InsightsCommands::Stats => cmd_stats(&db),
             InsightsCommands::Overview => cmd_overview(&db),
+            _ => unreachable!("all variants covered"),
         },
 
         // ============================================
@@ -159,6 +161,7 @@ fn main() -> Result<()> {
                 AiConfigCommands::Set { provider } => cmd_ai_set(&provider),
                 AiConfigCommands::Show => cmd_ai_show(),
                 AiConfigCommands::Test => cmd_ai_test(),
+                _ => unreachable!("all variants covered"),
             },
             AiCommands::Enrich {
                 categorize,
@@ -218,6 +221,7 @@ fn main() -> Result<()> {
             AiCommands::Test => cmd_ai_test(),
             AiCommands::Categorize { dry_run } => cmd_ai_categorize(dry_run),
             AiCommands::Describe { dry_run, limit } => cmd_ai_describe(dry_run, limit),
+            _ => unreachable!("all variants covered"),
         },
 
         // ============================================
@@ -275,6 +279,7 @@ fn main() -> Result<()> {
             BundleCommands::Remove { name, tools } => cmd_bundle_remove(&db, &name, tools),
             BundleCommands::Delete { name, force } => cmd_bundle_delete(&db, &name, force),
             BundleCommands::Update { name, yes } => cmd_bundle_update(&db, &name, yes),
+            _ => unreachable!("all variants covered"),
         },
 
         Commands::Config(subcmd) => match subcmd {
@@ -299,6 +304,7 @@ fn main() -> Result<()> {
                 source,
                 tool,
             } => cmd_config_edit(&db, &name, target, source, tool),
+            _ => unreachable!("all variants covered"),
         },
 
         // ============================================
@@ -329,6 +335,7 @@ fn main() -> Result<()> {
             GhCommands::Fetch { name } => cmd_gh_fetch(&db, &name),
             GhCommands::Search { query, limit } => cmd_gh_search(&query, limit),
             GhCommands::Info { name } => cmd_gh_info(&db, &name),
+            _ => unreachable!("all variants covered"),
         },
 
         // ============================================
@@ -343,6 +350,7 @@ fn main() -> Result<()> {
             CompletionsCommands::Install { shell, force } => cmd_completions_install(shell, force),
             CompletionsCommands::Status => cmd_completions_status(),
             CompletionsCommands::Uninstall { shell } => cmd_completions_uninstall(shell),
+            _ => unreachable!("all variants covered"),
         },
 
         // ============================================
@@ -385,11 +393,13 @@ fn main() -> Result<()> {
                 cmd_usage_config(&mut config, mode)
             }
             UsageCommands::Reset { force } => cmd_usage_reset(&db, force),
+            _ => unreachable!("all variants covered"),
         },
 
         Commands::Unused => cmd_unused(&db),
         Commands::Recommend { count } => cmd_recommend(&db, count),
         Commands::Doctor { fix } => cmd_doctor(&db, fix),
+        _ => unreachable!("all variants covered"),
     }
 }
 
