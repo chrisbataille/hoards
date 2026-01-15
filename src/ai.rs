@@ -45,6 +45,23 @@ Available tools (not yet bundled):
 {{TOOLS}}
 "#;
 
+const DEFAULT_EXTRACT_PROMPT: &str = r#"Extract CLI tool information from this GitHub README.
+
+Return a JSON object with these fields:
+- "name": tool name (required)
+- "binary": binary name if different from tool name (optional, null if same)
+- "source": installation source, one of: "cargo", "pip", "npm", "apt", "brew", "snap", "flatpak", "manual" (required)
+- "install_command": the install command, e.g. "cargo install ripgrep" (optional)
+- "description": brief description, max 100 chars (required)
+- "category": suggested category from: dev, shell, files, search, git, network, system, editor, data, security, misc (required)
+
+Example response:
+{"name": "ripgrep", "binary": "rg", "source": "cargo", "install_command": "cargo install ripgrep", "description": "Fast regex search tool, replacement for grep", "category": "search"}
+
+README content:
+{{README}}
+"#;
+
 // ==================== Prompt loading ====================
 
 /// Get the prompts directory path
@@ -271,6 +288,156 @@ pub fn parse_bundle_response(response: &str) -> Result<Vec<BundleSuggestion>> {
         .collect())
 }
 
+// ==================== Extract ====================
+
+/// Extracted tool information from a GitHub README
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExtractedTool {
+    pub name: String,
+    pub binary: Option<String>,
+    pub source: String,
+    pub install_command: Option<String>,
+    pub description: String,
+    pub category: String,
+}
+
+/// Parse a GitHub URL to extract owner and repo
+pub fn parse_github_url(url: &str) -> Result<(String, String)> {
+    // Handle various GitHub URL formats:
+    // https://github.com/owner/repo
+    // https://github.com/owner/repo.git
+    // https://github.com/owner/repo/...
+    // git@github.com:owner/repo.git
+    // owner/repo (shorthand)
+
+    let url = url.trim();
+
+    // Shorthand format: owner/repo
+    if !url.contains("github.com") && url.contains('/') && !url.contains(':') {
+        let parts: Vec<&str> = url.split('/').collect();
+        if parts.len() >= 2 {
+            return Ok((
+                parts[0].to_string(),
+                parts[1].trim_end_matches(".git").to_string(),
+            ));
+        }
+    }
+
+    // SSH format: git@github.com:owner/repo.git
+    if url.starts_with("git@github.com:") {
+        let path = url.trim_start_matches("git@github.com:");
+        let parts: Vec<&str> = path.split('/').collect();
+        if parts.len() >= 2 {
+            return Ok((
+                parts[0].to_string(),
+                parts[1].trim_end_matches(".git").to_string(),
+            ));
+        }
+    }
+
+    // HTTPS format
+    if let Some(path) = url
+        .strip_prefix("https://github.com/")
+        .or_else(|| url.strip_prefix("http://github.com/"))
+    {
+        let parts: Vec<&str> = path.split('/').collect();
+        if parts.len() >= 2 {
+            return Ok((
+                parts[0].to_string(),
+                parts[1].trim_end_matches(".git").to_string(),
+            ));
+        }
+    }
+
+    bail!("Invalid GitHub URL format: {}", url)
+}
+
+/// Fetch README content from GitHub using gh CLI
+pub fn fetch_readme(owner: &str, repo: &str) -> Result<String> {
+    let output = Command::new("gh")
+        .args(["api", &format!("repos/{}/{}/readme", owner, repo)])
+        .output()
+        .context("Failed to run gh api")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to fetch README: {}", stderr);
+    }
+
+    #[derive(serde::Deserialize)]
+    struct ReadmeResponse {
+        content: String,
+        encoding: String,
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let readme: ReadmeResponse =
+        serde_json::from_str(&stdout).context("Failed to parse README response")?;
+
+    if readme.encoding != "base64" {
+        bail!("Unexpected README encoding: {}", readme.encoding);
+    }
+
+    // Decode base64 content
+    use base64::{Engine as _, engine::general_purpose};
+    let decoded = general_purpose::STANDARD
+        .decode(readme.content.replace('\n', ""))
+        .context("Failed to decode README content")?;
+
+    String::from_utf8(decoded).context("README is not valid UTF-8")
+}
+
+/// Fetch the latest commit SHA for a repo (used for cache versioning)
+pub fn fetch_repo_version(owner: &str, repo: &str) -> Result<String> {
+    let output = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{}/{}/commits/HEAD", owner, repo),
+            "--jq",
+            ".sha",
+        ])
+        .output()
+        .context("Failed to run gh api")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Failed to fetch repo version: {}", stderr);
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// Generate extraction prompt
+pub fn extract_prompt(readme: &str) -> String {
+    // Truncate README if too long (keep first ~8000 chars to leave room for prompt)
+    let readme_truncated = if readme.len() > 8000 {
+        format!("{}...\n[README truncated]", &readme[..8000])
+    } else {
+        readme.to_string()
+    };
+
+    let template = load_prompt("extract", DEFAULT_EXTRACT_PROMPT);
+    template.replace("{{README}}", &readme_truncated)
+}
+
+/// Parse extraction response from AI
+pub fn parse_extract_response(response: &str) -> Result<ExtractedTool> {
+    let json_str = extract_json_object(response)?;
+
+    let tool: ExtractedTool =
+        serde_json::from_str(&json_str).context("Failed to parse AI extraction response")?;
+
+    // Validate required fields
+    if tool.name.is_empty() {
+        bail!("Extracted tool has no name");
+    }
+    if tool.description.is_empty() {
+        bail!("Extracted tool has no description");
+    }
+
+    Ok(tool)
+}
+
 // ==================== JSON extraction helpers ====================
 
 /// Extract a JSON object from a response that might contain extra text
@@ -335,5 +502,78 @@ Done!"#;
         assert!(DEFAULT_DESCRIBE_PROMPT.contains("{{TOOLS}}"));
         assert!(DEFAULT_SUGGEST_BUNDLE_PROMPT.contains("{{COUNT}}"));
         assert!(DEFAULT_SUGGEST_BUNDLE_PROMPT.contains("{{TOOLS}}"));
+        assert!(DEFAULT_EXTRACT_PROMPT.contains("{{README}}"));
+    }
+
+    #[test]
+    fn test_parse_github_url_https() {
+        let (owner, repo) = parse_github_url("https://github.com/BurntSushi/ripgrep").unwrap();
+        assert_eq!(owner, "BurntSushi");
+        assert_eq!(repo, "ripgrep");
+    }
+
+    #[test]
+    fn test_parse_github_url_https_with_git() {
+        let (owner, repo) = parse_github_url("https://github.com/BurntSushi/ripgrep.git").unwrap();
+        assert_eq!(owner, "BurntSushi");
+        assert_eq!(repo, "ripgrep");
+    }
+
+    #[test]
+    fn test_parse_github_url_https_with_path() {
+        let (owner, repo) =
+            parse_github_url("https://github.com/BurntSushi/ripgrep/tree/master").unwrap();
+        assert_eq!(owner, "BurntSushi");
+        assert_eq!(repo, "ripgrep");
+    }
+
+    #[test]
+    fn test_parse_github_url_ssh() {
+        let (owner, repo) = parse_github_url("git@github.com:BurntSushi/ripgrep.git").unwrap();
+        assert_eq!(owner, "BurntSushi");
+        assert_eq!(repo, "ripgrep");
+    }
+
+    #[test]
+    fn test_parse_github_url_shorthand() {
+        let (owner, repo) = parse_github_url("BurntSushi/ripgrep").unwrap();
+        assert_eq!(owner, "BurntSushi");
+        assert_eq!(repo, "ripgrep");
+    }
+
+    #[test]
+    fn test_parse_github_url_invalid() {
+        assert!(parse_github_url("not-a-url").is_err());
+        assert!(parse_github_url("https://gitlab.com/foo/bar").is_err());
+    }
+
+    #[test]
+    fn test_parse_extract_response() {
+        let response = r#"Here's the extracted info:
+{"name": "ripgrep", "binary": "rg", "source": "cargo", "install_command": "cargo install ripgrep", "description": "Fast regex search", "category": "search"}
+"#;
+        let tool = parse_extract_response(response).unwrap();
+        assert_eq!(tool.name, "ripgrep");
+        assert_eq!(tool.binary, Some("rg".to_string()));
+        assert_eq!(tool.source, "cargo");
+        assert_eq!(tool.category, "search");
+    }
+
+    #[test]
+    fn test_parse_extract_response_minimal() {
+        let response =
+            r#"{"name": "foo", "source": "pip", "description": "A tool", "category": "misc"}"#;
+        let tool = parse_extract_response(response).unwrap();
+        assert_eq!(tool.name, "foo");
+        assert_eq!(tool.binary, None);
+        assert_eq!(tool.install_command, None);
+    }
+
+    #[test]
+    fn test_extract_prompt_truncates_long_readme() {
+        let long_readme = "x".repeat(10000);
+        let prompt = extract_prompt(&long_readme);
+        assert!(prompt.contains("[README truncated]"));
+        assert!(prompt.len() < 10000);
     }
 }

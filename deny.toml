@@ -1,0 +1,57 @@
+# cargo-deny configuration for hoards
+# Run with: cargo deny check
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+targets = []
+all-features = false
+no-default-features = false
+
+[advisories]
+ignore = []
+
+[licenses]
+# All licenses used by our dependencies - all permissive and MIT-compatible
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "MPL-2.0",              # colored, option-ext (weak copyleft, file-level)
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",  # webpki-roots (Mozilla TLS certificates)
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[licenses.private]
+ignore = true
+registries = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+
+# Skip duplicate version warnings for crates with known multiple versions
+skip = [
+    { crate = "getrandom", reason = "ring uses 0.2, tempfile uses 0.3" },
+    { crate = "hashbrown", reason = "rusqlite uses 0.14, toml uses 0.16" },
+    { crate = "thiserror", reason = "dialoguer uses v1, hoards uses v2" },
+    { crate = "thiserror-impl", reason = "accompanies thiserror" },
+    { crate = "windows-sys", reason = "various deps at different versions" },
+]
+skip-tree = []
+
+[sources]
+unknown-registry = "warn"
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

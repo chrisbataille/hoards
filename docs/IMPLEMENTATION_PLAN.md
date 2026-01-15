@@ -18,7 +18,7 @@ Transform hoard from a CLI tool tracker into the **AI-powered developer tool man
 | Phase | Focus | Duration | Status |
 |-------|-------|----------|--------|
 | 1 | CLI Simplification | 2-3 weeks | ✅ Complete |
-| 2 | AI Enhancements | 2-3 weeks | 🔲 Not Started |
+| 2 | AI Enhancements | 2-3 weeks | 🔄 In Progress (2.1 done) |
 | 3 | TUI MVP | 4-6 weeks | 🔲 Not Started |
 | 4 | TUI Polish | 2-3 weeks | 🔲 Not Started |
 
@@ -242,12 +242,12 @@ hoard gh backfill                # Fill from cache
 ### 1.7 Update Documentation & Completions
 
 **Tasks:**
-- [ ] Update USER_GUIDE.md with new command structure
-- [ ] Update API.md with new exports
-- [ ] Update README.md quick start
+- [x] Update USER_GUIDE.md with new command structure
+- [x] Update API.md with new exports
+- [x] Update README.md quick start
 - [x] Rewrite Fish completions for new structure
 - [x] Add deprecation warnings for old commands
-- [ ] Create migration guide for existing users
+- [x] Create migration guide for existing users
 
 ---
 
@@ -281,13 +281,13 @@ hoard ai extract https://github.com/BurntSushi/ripgrep
 5. Optionally add to database
 
 **Tasks:**
-- [ ] Create extraction prompt template
-- [ ] Implement GitHub README fetching
-- [ ] Implement AI extraction with Claude
-- [ ] Parse and validate response
-- [ ] Add interactive confirmation
-- [ ] Handle edge cases (no README, multiple install methods)
-- [ ] Cache extractions to avoid repeat API calls
+- [x] Create extraction prompt template
+- [x] Implement GitHub README fetching
+- [x] Implement AI extraction with Claude
+- [x] Parse and validate response
+- [x] Add interactive confirmation
+- [x] Handle edge cases (no README, multiple install methods)
+- [x] Cache extractions to avoid repeat API calls
 
 ---
 
@@ -641,8 +641,94 @@ src/tui/
 - [ ] Update all documentation
 - [ ] Remove deprecated code after 1 version
 - [x] Ensure 0 clippy warnings maintained
-- [x] Keep test count growing (currently 109)
+- [x] Keep test count growing (currently 118)
 - [x] Pre-commit hooks for code quality
+- [x] Add cargo-deny for dependency auditing
+
+---
+
+## Technical Debt Audit (January 2026)
+
+### Summary
+
+| Metric | Value | Status |
+|--------|-------|--------|
+| Total Lines of Code | 13,564 | - |
+| Test Count | 118 tests | ✅ Good |
+| God Modules (>1500 lines) | 2 | 🔴 Needs work |
+| Unwrap Calls | 53 (1 risky) | ✅ Low risk |
+| Security Vulnerabilities | 0 | ✅ Clean |
+| Outdated Dependencies | 0 | ✅ Current |
+
+**Overall Debt Score: MEDIUM** - Well-structured codebase with two organizational issues.
+
+### Critical Issues
+
+#### 1. God Modules
+
+| File | Lines | Issue |
+|------|-------|-------|
+| `src/db.rs` | 1,701 | 11 different concerns mixed together |
+| `src/main.rs` | 1,607 | All CLI routing + command logic |
+
+**Recommended Action:** Split into focused modules (see roadmap below).
+
+#### 2. Test Gap
+
+`src/main.rs` has 0 unit tests (1,607 lines untested at unit level).
+Integration tests via database tests provide some coverage.
+
+### Positive Findings
+
+- ✅ No security vulnerabilities (cargo audit clean)
+- ✅ All dependencies at latest versions
+- ✅ All licenses MIT-compatible
+- ✅ No TODO/FIXME comments
+- ✅ No circular dependencies
+- ✅ No unsafe code blocks
+- ✅ Good test coverage in core modules (db, models, sources)
+
+### Remediation Roadmap
+
+#### Quick Wins (This Sprint)
+- [x] Add `deny.toml` for dependency auditing
+- [ ] Fix unwrap in `src/updates.rs:39`
+- [ ] Add file size warnings to CI
+
+#### Short-Term (Next 2 Sprints)
+- [ ] Split `src/db.rs` into focused modules:
+  ```
+  src/db/
+  ├── mod.rs          (re-exports, Database struct)
+  ├── tools.rs        (tool CRUD)
+  ├── bundles.rs      (bundle operations)
+  ├── configs.rs      (config operations)
+  ├── labels.rs       (label operations)
+  ├── github.rs       (github data)
+  ├── usage.rs        (usage tracking)
+  ├── extractions.rs  (AI extraction cache)
+  └── schema.rs       (table definitions)
+  ```
+- [ ] Extract command routing from `src/main.rs`
+
+#### Long-Term (Next Quarter)
+- [ ] Create output formatting abstraction (`ui::` module)
+- [ ] Add comprehensive integration tests for main.rs
+- [ ] Target 80% overall test coverage
+
+### Prevention Measures
+
+**Code Review Checklist:**
+- No new files >500 lines
+- No new functions >50 lines
+- Tests required for new functionality
+- No new `unwrap()` in production code
+
+**CI Quality Gates:**
+- `cargo deny check` for dependencies
+- `cargo audit` for security
+- `cargo clippy` for linting
+- File size monitoring
 
 ---
 

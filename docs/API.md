@@ -1,6 +1,6 @@
-# Hoard Library API Reference
+# Hoards Library API Reference
 
-This document provides API documentation for using hoard as a Rust library.
+This document provides API documentation for using hoards as a Rust library.
 
 ## Installation
 
@@ -8,7 +8,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-hoard = { path = "../hoard" }
+hoards = "0.1"
+```
+
+Or from git:
+
+```toml
+[dependencies]
+hoards = { git = "https://github.com/chrisbataille/hoards" }
 ```
 
 ## Core Types
@@ -18,17 +25,18 @@ hoard = { path = "../hoard" }
 Enum representing package installation sources.
 
 ```rust
-use hoard::InstallSource;
+use hoards::InstallSource;
 
 pub enum InstallSource {
-    Cargo,   // Rust packages via cargo
-    Apt,     // Debian/Ubuntu packages
-    Snap,    // Snap packages
-    Npm,     // Node.js packages
-    Pip,     // Python packages
-    Brew,    // Homebrew packages (macOS/Linux)
-    Manual,  // Manually installed
-    Unknown, // Unknown source
+    Cargo,    // Rust packages via cargo
+    Apt,      // Debian/Ubuntu packages
+    Snap,     // Snap packages
+    Flatpak,  // Flatpak packages
+    Npm,      // Node.js packages
+    Pip,      // Python packages
+    Brew,     // Homebrew packages (macOS/Linux)
+    Manual,   // Manually installed
+    Unknown,  // Unknown source
 }
 
 // String conversion
@@ -41,7 +49,7 @@ let s = InstallSource::Cargo.to_string();   // -> "cargo"
 Represents a tracked CLI tool.
 
 ```rust
-use hoard::{Tool, InstallSource};
+use hoards::{Tool, InstallSource};
 
 pub struct Tool {
     pub id: Option<i64>,
@@ -73,7 +81,7 @@ let tool = Tool::new("ripgrep")
 Represents a collection of tools.
 
 ```rust
-use hoard::Bundle;
+use hoards::Bundle;
 
 pub struct Bundle {
     pub id: Option<i64>,
@@ -98,7 +106,7 @@ let bundle = Bundle::new("search-tools", vec![
 Main database interface.
 
 ```rust
-use hoard::Database;
+use hoards::Database;
 use anyhow::Result;
 
 fn main() -> Result<()> {
@@ -116,7 +124,7 @@ fn main() -> Result<()> {
 ### Tool CRUD
 
 ```rust
-use hoard::{Database, Tool, InstallSource};
+use hoards::{Database, Tool, InstallSource};
 
 fn tool_operations(db: &Database) -> Result<()> {
     // Insert a tool
@@ -159,7 +167,7 @@ fn tool_operations(db: &Database) -> Result<()> {
 ### Bundle Operations
 
 ```rust
-use hoard::{Database, Bundle};
+use hoards::{Database, Bundle};
 
 fn bundle_operations(db: &Database) -> Result<()> {
     // Create bundle
@@ -189,7 +197,7 @@ fn bundle_operations(db: &Database) -> Result<()> {
 ### Usage Tracking
 
 ```rust
-use hoard::Database;
+use hoards::Database;
 
 fn usage_operations(db: &Database) -> Result<()> {
     // Record usage
@@ -216,7 +224,7 @@ fn usage_operations(db: &Database) -> Result<()> {
 ### Labels
 
 ```rust
-use hoard::Database;
+use hoards::Database;
 
 fn label_operations(db: &Database) -> Result<()> {
     // Add labels
@@ -244,7 +252,7 @@ fn label_operations(db: &Database) -> Result<()> {
 ### Statistics
 
 ```rust
-use hoard::Database;
+use hoards::Database;
 
 fn stats(db: &Database) -> Result<()> {
     // Get overall stats
@@ -266,7 +274,7 @@ fn stats(db: &Database) -> Result<()> {
 ### `PackageSource` Trait
 
 ```rust
-use hoard::{PackageSource, Tool};
+use hoards::{PackageSource, Tool};
 use anyhow::Result;
 
 pub trait PackageSource {
@@ -296,7 +304,7 @@ pub trait PackageSource {
 ### Using Sources
 
 ```rust
-use hoard::{all_sources, get_source, source_for, InstallSource};
+use hoards::{all_sources, get_source, source_for, InstallSource};
 
 fn source_examples() {
     // Get all available sources
@@ -322,7 +330,7 @@ fn source_examples() {
 ## Scanner Utilities
 
 ```rust
-use hoard::{is_installed, scan_known_tools, scan_missing_tools, scan_path_tools, KNOWN_TOOLS};
+use hoards::{is_installed, scan_known_tools, scan_missing_tools, scan_path_tools, KNOWN_TOOLS};
 use std::collections::HashSet;
 
 fn scanner_examples() {
@@ -353,9 +361,9 @@ fn scanner_examples() {
 ## Safe Command Execution
 
 ```rust
-use hoard::{validate_package_name, validate_version, SafeCommand};
-use hoard::{get_safe_install_command, get_safe_uninstall_command};
-use hoard::InstallSource;
+use hoards::{validate_package_name, validate_version, SafeCommand};
+use hoards::{get_safe_install_command, get_safe_uninstall_command};
+use hoards::InstallSource;
 
 fn safe_execution() -> Result<()> {
     // Validate user input
@@ -382,29 +390,40 @@ fn safe_execution() -> Result<()> {
 All command implementations are exported for programmatic use:
 
 ```rust
-use hoard::{
-    // Install commands
+use hoards::{
+    // Workflow commands
+    cmd_init, cmd_maintain, cmd_cleanup,
+
+    // Sync command
+    cmd_sync,
+
+    // Discover commands
+    cmd_discover_list, cmd_discover_search, cmd_discover_categories,
+    cmd_discover_labels, cmd_discover_similar, cmd_discover_trending,
+    cmd_discover_recommended, cmd_discover_missing,
+
+    // Insights commands
+    cmd_insights_overview, cmd_insights_usage, cmd_insights_unused,
+    cmd_insights_health, cmd_insights_stats,
+
+    // Tool management
+    cmd_add, cmd_show, cmd_remove,
     cmd_install, cmd_uninstall, cmd_upgrade,
 
     // Bundle commands
     cmd_bundle_create, cmd_bundle_list, cmd_bundle_show,
     cmd_bundle_install, cmd_bundle_add, cmd_bundle_remove,
-    cmd_bundle_delete, cmd_bundle_update,
+    cmd_bundle_delete,
 
     // AI commands
-    cmd_ai_set, cmd_ai_show, cmd_ai_test,
-    cmd_ai_categorize, cmd_ai_describe, cmd_ai_suggest_bundle,
+    cmd_ai_config_set, cmd_ai_config_show, cmd_ai_config_test,
+    cmd_ai_enrich, cmd_ai_extract,
 
-    // GitHub commands
-    cmd_gh_sync, cmd_gh_fetch, cmd_gh_search,
-    cmd_gh_info, cmd_gh_rate_limit, cmd_gh_backfill,
-
-    // Usage commands
-    cmd_usage_scan, cmd_usage_show, cmd_usage_tool,
-    cmd_labels, cmd_unused, cmd_recommend,
+    // GitHub commands (advanced)
+    cmd_gh_fetch, cmd_gh_backfill,
 
     // Misc commands
-    cmd_export, cmd_import, cmd_doctor, cmd_edit,
+    cmd_export, cmd_import, cmd_edit,
 
     Database,
 };
@@ -412,10 +431,15 @@ use hoard::{
 fn programmatic_usage() -> Result<()> {
     let db = Database::open()?;
 
-    // Run commands programmatically
-    cmd_usage_scan(&db, false, false)?;  // scan, no dry-run, no reset
-    cmd_unused(&db)?;
-    cmd_recommend(&db, 5)?;
+    // Run workflow commands
+    cmd_maintain(&db, false)?;  // auto=false for interactive
+
+    // Run sync with options
+    cmd_sync(&db, true, true, true, true, false)?;  // scan, github, usage, descriptions, dry_run
+
+    // Run insights
+    cmd_insights_overview(&db)?;
+    cmd_insights_unused(&db)?;
 
     Ok(())
 }
@@ -427,11 +451,11 @@ All functions return `anyhow::Result<T>` for flexible error handling:
 
 ```rust
 use anyhow::{Result, Context};
-use hoard::Database;
+use hoards::Database;
 
 fn with_context() -> Result<()> {
     let db = Database::open()
-        .context("Failed to open hoard database")?;
+        .context("Failed to open hoards database")?;
 
     let tool = db.get_tool_by_name("ripgrep")
         .context("Database query failed")?

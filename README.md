@@ -134,6 +134,11 @@ hoards ai enrich                    # Interactive menu
 hoards ai enrich --categorize       # Auto-categorize tools
 hoards ai enrich --describe         # Generate descriptions
 hoards ai enrich --all              # Both operations
+
+# Extract from GitHub README
+hoards ai extract <github-url>      # Extract tool info from README
+hoards ai extract url1 url2 url3    # Batch mode
+hoards ai extract url --yes         # Skip confirmation
 ```
 
 ### Config Management

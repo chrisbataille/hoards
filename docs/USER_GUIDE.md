@@ -1,18 +1,19 @@
-# Hoard User Guide
+# Hoards User Guide
 
-A step-by-step guide to using hoard for managing your CLI tools.
+A comprehensive guide to using hoards for managing your CLI tools.
 
 ## Table of Contents
 
 1. [Getting Started](#getting-started)
-2. [Scanning Your System](#scanning-your-system)
-3. [Managing Tools](#managing-tools)
-4. [Using Bundles](#using-bundles)
-5. [Usage Analytics](#usage-analytics)
-6. [AI Features](#ai-features)
-7. [GitHub Integration](#github-integration)
-8. [Maintenance](#maintenance)
-9. [Troubleshooting](#troubleshooting)
+2. [Syncing Your System](#syncing-your-system)
+3. [Discovering Tools](#discovering-tools)
+4. [Managing Tools](#managing-tools)
+5. [Using Bundles](#using-bundles)
+6. [Usage Insights](#usage-insights)
+7. [AI Features](#ai-features)
+8. [Config Management](#config-management)
+9. [Maintenance](#maintenance)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -20,504 +21,485 @@ A step-by-step guide to using hoard for managing your CLI tools.
 
 ### First-Time Setup
 
-After installing hoard, run these commands to get started:
+The easiest way to get started is the interactive setup wizard:
 
 ```bash
-# 1. Scan your system for installed tools
-hoard scan
-
-# 2. Sync the database with current installation status
-hoard sync
-
-# 3. View your tool statistics
-hoard stats
+hoards init
 ```
 
-### Understanding the Output
+This will guide you through:
+1. Scanning your system for installed tools
+2. Syncing installation status
+3. Optionally fetching GitHub data
+4. Optionally setting up AI categorization
 
-When you run `hoard list`, you'll see output like:
+### Manual Setup
 
+If you prefer manual control:
+
+```bash
+# Scan system and sync everything
+hoards sync --all
+
+# Or step by step:
+hoards sync --scan      # Discover tools
+hoards sync             # Update status
+hoards sync --github    # Fetch GitHub data
+hoards sync --usage     # Parse shell history
 ```
-NAME                 CATEGORY     SOURCE     STATUS   DESCRIPTION
---------------------------------------------------------------------------------
-ripgrep              search       cargo      installed Fast grep replacement
-fd                   files        cargo      installed Fast find replacement
-bat                  files        cargo      installed Cat with syntax highlighting
-htop                 system       apt        missing   Interactive process viewer
+
+### Daily Maintenance
+
+Run periodically to keep your database current:
+
+```bash
+hoards maintain
 ```
 
-- **NAME**: The tool's name
-- **CATEGORY**: Tool category (search, files, git, etc.)
-- **SOURCE**: Where it was installed from (cargo, apt, pip, etc.)
-- **STATUS**: `installed` or `missing`
-- **DESCRIPTION**: Brief description
+This performs a quick health check and sync.
 
 ---
 
-## Scanning Your System
+## Syncing Your System
 
-### Full System Scan
+The `sync` command is your primary tool for keeping the database updated.
+
+### Basic Sync
 
 ```bash
-# Scan and add all found tools to database
-hoard scan
+# Update installation status only
+hoards sync
 
-# Preview what would be added (dry run)
-hoard scan --dry-run
+# Preview changes without applying
+hoards sync --dry-run
 ```
 
-The scan checks:
-- **Known tools**: Curated list of popular CLI tools
-- **Cargo**: Rust packages in `~/.cargo/bin`
-- **Pip**: Python packages
-- **Npm**: Node.js global packages
-- **Apt**: Debian/Ubuntu packages
-- **Brew**: Homebrew packages (macOS/Linux)
-- **PATH**: Other binaries in your PATH
-
-### Syncing Status
-
-After installing or uninstalling tools outside of hoard:
+### Full Sync Options
 
 ```bash
-# Update installed/missing status
-hoard sync
+# Include tool discovery (scans PATH, package managers)
+hoards sync --scan
 
-# Preview changes
-hoard sync --dry-run
+# Include GitHub data (stars, descriptions, topics)
+hoards sync --github
+
+# Include usage tracking (parses shell history)
+hoards sync --usage
+
+# Include description fetching
+hoards sync --descriptions
+
+# Do everything
+hoards sync --all
+```
+
+### What Gets Synced
+
+| Flag | Action |
+|------|--------|
+| (none) | Update installed/missing status |
+| `--scan` | Discover new tools from system |
+| `--github` | Fetch repo info, stars, topics |
+| `--usage` | Parse shell history for usage counts |
+| `--descriptions` | Fetch descriptions from registries |
+| `--all` | All of the above |
+
+---
+
+## Discovering Tools
+
+The `discover` command group helps you explore and find tools.
+
+### List Your Tools
+
+```bash
+# List all tracked tools
+hoards discover list
+
+# Filter by status
+hoards discover list --installed
+hoards discover list --missing
+
+# Filter by category or label
+hoards discover list --category search
+hoards discover list --label rust
+
+# Output formats
+hoards discover list --format json
+hoards discover list --format table
+```
+
+### Search
+
+```bash
+# Search local database
+hoards discover search grep
+
+# Search GitHub too
+hoards discover search "rust cli" --github
+
+# Limit results
+hoards discover search grep --limit 20
+```
+
+### Browse by Category
+
+```bash
+# Show all categories with counts
+hoards discover categories
+
+# List tools in a category
+hoards discover list --category search
+```
+
+### Browse by Label
+
+```bash
+# Show all labels (GitHub topics)
+hoards discover labels
+
+# List tools with a label
+hoards discover list --label rust
+```
+
+### Find Similar Tools
+
+```bash
+# Find tools similar to one you like
+hoards discover similar ripgrep
+```
+
+### Trending Tools
+
+```bash
+# Show popular tools by GitHub stars
+hoards discover trending
+
+# Limit results
+hoards discover trending --limit 20
+```
+
+### Recommendations
+
+```bash
+# Get recommendations based on your usage
+hoards discover recommended
+
+# Get more recommendations
+hoards discover recommended --count 10
+```
+
+### Find Missing Tools
+
+```bash
+# Tools you might want to install
+hoards discover missing
 ```
 
 ---
 
 ## Managing Tools
 
-### Adding Tools Manually
+### Adding Tools
 
 ```bash
 # Basic add
-hoard add mytool
+hoards add mytool
 
-# With metadata
-hoard add ripgrep \
+# With full metadata
+hoards add ripgrep \
   --description "Fast grep replacement" \
   --category search \
   --source cargo \
-  --binary rg \
-  --installed
+  --binary rg
 ```
 
-### Viewing Tools
+### Viewing Tool Details
 
 ```bash
-# List all tools
-hoard list
-
-# List only installed
-hoard list --installed
-
-# Filter by category
-hoard list --category search
-
-# Filter by label (GitHub topic)
-hoard list --label rust
-
-# Output as JSON
-hoard list --format json
-
-# Search by name or description
-hoard search grep
-
-# Show details for a specific tool
-hoard show ripgrep
+# Show details (includes GitHub info if synced)
+hoards show ripgrep
 ```
 
 ### Installing Tools
 
 ```bash
 # Install using detected source
-hoard install ripgrep
+hoards install ripgrep
 
 # Specify source
-hoard install requests --source pip
+hoards install requests --source pip
 
 # Install specific version
-hoard install ripgrep --version 14.0.0
+hoards install ripgrep --version 14.0.0
 
 # Skip confirmation
-hoard install ripgrep --force
+hoards install ripgrep --force
 ```
 
 ### Uninstalling Tools
 
 ```bash
 # Uninstall but keep in database
-hoard uninstall ripgrep
+hoards uninstall ripgrep
 
 # Uninstall and remove from database
-hoard uninstall ripgrep --remove
+hoards uninstall ripgrep --remove
 
 # Skip confirmation
-hoard uninstall ripgrep --force
+hoards uninstall ripgrep --force
 ```
 
 ### Upgrading Tools
 
 ```bash
 # Upgrade to latest version
-hoard upgrade ripgrep
+hoards upgrade ripgrep
 
-# Upgrade to specific version
-hoard upgrade ripgrep --version 14.1.0
-
-# Switch to different source (e.g., apt to cargo)
-hoard upgrade fd --to cargo
+# Switch to different source
+hoards upgrade fd --to cargo
 ```
 
-### Checking for Updates
-
-```bash
-# Check all sources
-hoard updates
-
-# Check specific source
-hoard updates --source cargo
-
-# Check only tracked tools
-hoard updates --tracked
-
-# Show all available versions
-hoard updates --tracked --all-versions
-
-# Find newer versions on other sources
-hoard updates --cross
-```
-
-### Removing Tools
+### Removing from Database
 
 ```bash
 # Remove from database (keeps installed)
-hoard remove mytool
-
-# Skip confirmation
-hoard remove mytool --force
+hoards remove mytool
 ```
 
 ---
 
 ## Using Bundles
 
-Bundles let you group related tools for easy installation.
+Bundles group related tools for easy management.
 
 ### Creating Bundles
 
 ```bash
-# Create a bundle
-hoard bundle create search-tools ripgrep fd bat \
-  --description "Modern search and file tools"
-
-# Create without description
-hoard bundle create dev-tools cargo rustfmt clippy
+hoards bundle create modern-unix ripgrep fd bat eza zoxide \
+  --description "Modern replacements for classic Unix tools"
 ```
 
 ### Managing Bundles
 
 ```bash
 # List all bundles
-hoard bundle list
+hoards bundle list
 
 # Show bundle contents
-hoard bundle show search-tools
+hoards bundle show modern-unix
 
-# Add tools to existing bundle
-hoard bundle add search-tools eza zoxide
+# Add tools to bundle
+hoards bundle add modern-unix dust procs
 
 # Remove tools from bundle
-hoard bundle remove search-tools eza
+hoards bundle remove modern-unix dust
 
 # Delete a bundle
-hoard bundle delete search-tools
-hoard bundle delete search-tools --force
+hoards bundle delete modern-unix
 ```
 
 ### Installing Bundles
 
 ```bash
 # Install all tools in a bundle
-hoard bundle install search-tools
+hoards bundle install modern-unix
 
 # Skip confirmation
-hoard bundle install search-tools --force
-```
-
-### Updating Bundle Tools
-
-```bash
-# Interactive update (choose per tool)
-hoard bundle update search-tools
-
-# Auto-update all to latest
-hoard bundle update search-tools --yes
+hoards bundle install modern-unix --force
 ```
 
 ---
 
-## Usage Analytics
+## Usage Insights
 
-Track which tools you actually use based on shell history.
+The `insights` command group provides analytics about your tool usage.
 
-### Scanning History
+### Overview Dashboard
 
 ```bash
-# Scan shell history and record usage
-hoard usage scan
-
-# Preview what would be recorded
-hoard usage scan --dry-run
-
-# Reset counts before scanning
-hoard usage scan --reset
+# Combined stats overview
+hoards insights overview
 ```
 
-Supported shells:
-- **Fish**: `~/.local/share/fish/fish_history`
-- **Bash**: `~/.bash_history`
-- **Zsh**: `~/.zsh_history`
-
-### Viewing Usage
+### Usage Statistics
 
 ```bash
-# Show top 20 most used tools
-hoard usage show
-
-# Show top 50
-hoard usage show --limit 50
+# Show top used tools
+hoards insights usage
 
 # Show usage for specific tool
-hoard usage tool ripgrep
+hoards insights usage ripgrep
+
+# Limit results
+hoards insights usage --limit 50
 ```
 
-### Finding Unused Tools
+### Find Unused Tools
 
 ```bash
-# List installed tools with no recorded usage
-hoard unused
+# Tools you have but never use
+hoards insights unused
 ```
 
-### Getting Recommendations
+### Health Check
 
 ```bash
-# Get 5 tool recommendations based on your usage
-hoard recommend
+# Database health and diagnostics
+hoards insights health
 
-# Get 10 recommendations
-hoard recommend --count 10
+# Auto-fix issues
+hoards insights health --fix
+```
+
+Health checks include:
+- Tools marked installed but binary missing
+- Tools without descriptions
+- Tools without categories
+- Orphaned usage records
+- GitHub API rate limit status
+
+### Statistics
+
+```bash
+# Database statistics
+hoards insights stats
 ```
 
 ---
 
 ## AI Features
 
-Use AI to auto-categorize tools and generate descriptions.
+AI helps with categorization, descriptions, and discovery.
 
-### Setup
+### Configuration
 
 ```bash
 # Set AI provider
-hoard ai set claude    # or: gemini, codex, opencode
+hoards ai config set claude    # or: gemini, codex
 
 # Show current config
-hoard ai show
+hoards ai config show
 
 # Test connection
-hoard ai test
+hoards ai config test
 ```
 
-### Auto-Categorization
+### Enrichment
 
 ```bash
-# Categorize uncategorized tools
-hoard ai categorize
+# Interactive enrichment menu
+hoards ai enrich
 
-# Preview changes
-hoard ai categorize --dry-run
-```
+# Auto-categorize uncategorized tools
+hoards ai enrich --categorize
 
-### Description Generation
-
-```bash
 # Generate descriptions for tools missing them
-hoard ai describe
+hoards ai enrich --describe
 
-# Limit to 10 tools
-hoard ai describe --limit 10
+# Both operations
+hoards ai enrich --all
 
-# Preview changes
-hoard ai describe --dry-run
+# Preview without changes
+hoards ai enrich --dry-run
 ```
 
-### Bundle Suggestions
+### Extract from GitHub
+
+Extract tool information directly from a GitHub repository's README:
 
 ```bash
-# Get AI-suggested bundles based on your tools
-hoard ai suggest-bundle
+# Extract from a single repository
+hoards ai extract https://github.com/BurntSushi/ripgrep
 
-# Get 10 suggestions
-hoard ai suggest-bundle --count 10
+# Extract from multiple repositories (batch mode)
+hoards ai extract url1 url2 url3
+
+# Rate limit API calls (milliseconds between requests)
+hoards ai extract url1 url2 --delay 2000
+
+# Skip confirmation prompt
+hoards ai extract url --yes
+
+# Preview without adding to database
+hoards ai extract url --dry-run
 ```
+
+Supported URL formats:
+- `https://github.com/owner/repo`
+- `git@github.com:owner/repo.git`
+- `owner/repo` (shorthand)
+
+Results are cached per repository version to avoid repeat API calls.
 
 ---
 
-## GitHub Integration
+## Config Management
 
-Fetch repository information for your tools.
+Track and manage tool configurations.
 
-### Setup
-
-Requires the `gh` CLI to be installed and authenticated:
+### Link Configs
 
 ```bash
-# Install gh CLI
-brew install gh  # or: apt install gh
-
-# Authenticate
-gh auth login
+hoards config link nvim \
+  --source ~/.config/nvim \
+  --target ~/dotfiles/nvim
 ```
 
-### Syncing with GitHub
+### Manage Configs
 
 ```bash
-# Sync all tools with GitHub data
-hoard gh sync
+# List managed configs
+hoards config list
 
-# Preview changes
-hoard gh sync --dry-run
+# Create symlinks
+hoards config sync
 
-# Limit API calls
-hoard gh sync --limit 50
-
-# Adjust delay between calls (ms)
-hoard gh sync --delay 3000
-```
-
-### Rate Limits
-
-GitHub has API rate limits:
-- **Core API**: 5,000 requests/hour
-- **Search API**: 30 requests/minute
-
-```bash
-# Check current rate limit status
-hoard gh rate-limit
-```
-
-### Per-Tool Operations
-
-```bash
-# Fetch GitHub info for one tool
-hoard gh fetch ripgrep
-
-# Search GitHub
-hoard gh search "rust cli tool"
-hoard gh search grep --limit 20
-
-# Show cached GitHub info
-hoard gh info ripgrep
-```
-
-### Backfill Descriptions
-
-Use cached GitHub data without API calls:
-
-```bash
-# Fill missing descriptions from cache
-hoard gh backfill
-
-# Preview changes
-hoard gh backfill --dry-run
-```
-
-### Labels
-
-GitHub topics become labels in hoard:
-
-```bash
-# List all labels
-hoard labels
-
-# List tools by label
-hoard list --label rust
-hoard list --label cli
+# Check symlink status
+hoards config status
 ```
 
 ---
 
 ## Maintenance
 
-### Health Checks
+### Workflow Commands
 
 ```bash
-# Check database health
-hoard doctor
+# First-time setup wizard
+hoards init
 
-# Auto-fix issues
-hoard doctor --fix
+# Daily maintenance
+hoards maintain
+
+# Cleanup unused tools
+hoards cleanup
 ```
-
-Checks performed:
-- Tools marked installed but binary missing
-- Tools without descriptions
-- Tools without categories
-- Tools without installation source
-- Orphaned usage records
-- Duplicate binaries
 
 ### Export/Import
 
 ```bash
 # Export to JSON
-hoard export --output tools.json
+hoards export --output tools.json
 
 # Export to TOML
-hoard export --output tools.toml --format toml
+hoards export --output tools.toml --format toml
 
-# Export only installed tools
-hoard export --output installed.json --installed
-
-# Print to stdout
-hoard export
+# Export only installed
+hoards export --output installed.json --installed
 
 # Import from file
-hoard import tools.json
-
-# Skip existing tools
-hoard import tools.json --skip-existing
+hoards import tools.json
 
 # Preview import
-hoard import tools.json --dry-run
+hoards import tools.json --dry-run
 ```
 
 ### Editing Tools
 
 ```bash
 # Interactive editor
-hoard edit ripgrep
-```
-
-This opens an interactive prompt to edit:
-- Description
-- Category
-- Source
-- Binary name
-- Install command
-- Installed status
-
-### Database Info
-
-```bash
-# Show database location and stats
-hoard info
-hoard stats
-hoard categories
+hoards edit ripgrep
 ```
 
 ---
@@ -529,79 +511,73 @@ hoard categories
 #### "Tool not found"
 
 ```bash
-# Check if it exists
-hoard show mytool
-
 # Rescan system
-hoard scan
-hoard sync
+hoards sync --scan
 ```
 
 #### "Rate limit exceeded" (GitHub)
 
 ```bash
-# Check rate limit status
-hoard gh rate-limit
+# Check rate limit
+hoards insights health
 
-# Wait for reset, or use --delay flag
-hoard gh sync --delay 5000
+# Use delay between API calls
+hoards sync --github --delay 5000
 ```
 
 #### "AI provider not configured"
 
 ```bash
-# Set up AI provider
-hoard ai set claude
-hoard ai test
+hoards ai config set claude
+hoards ai config test
 ```
 
 #### Database Issues
 
 ```bash
-# Run health checks
-hoard doctor --fix
-
-# Database location
-hoard info
+# Run health check with auto-fix
+hoards insights health --fix
 ```
 
 ### Getting Help
 
 ```bash
 # General help
-hoard --help
+hoards --help
 
 # Command-specific help
-hoard install --help
-hoard bundle --help
-hoard ai --help
-hoard gh --help
-hoard usage --help
+hoards sync --help
+hoards discover --help
+hoards insights --help
+hoards ai --help
+hoards bundle --help
 ```
+
+### Database Location
+
+- Linux: `~/.local/share/hoards/hoards.db`
+- macOS: `~/Library/Application Support/hoards/hoards.db`
 
 ### Resetting
 
-To start fresh:
-
 ```bash
-# Find database location
-hoard info
+# Find database
+hoards insights stats
 
-# Remove database (caution: deletes all data)
-rm ~/.local/share/hoard/hoard.db
+# Remove database (caution!)
+rm ~/.local/share/hoards/hoards.db
 
-# Rescan
-hoard scan
+# Start fresh
+hoards init
 ```
 
 ---
 
 ## Tips & Best Practices
 
-1. **Regular syncing**: Run `hoard sync` after installing tools outside hoard
-2. **Track usage**: Run `hoard usage scan` periodically to track usage
-3. **Clean up**: Use `hoard unused` to find tools to remove
-4. **Bundles**: Create bundles for your common tool sets
-5. **Backups**: Export your database before major changes: `hoard export -o backup.json`
-6. **Categories**: Keep tools categorized for easier browsing
-7. **GitHub sync**: Run periodically to get latest descriptions and topics
+1. **Use `hoards maintain`** regularly to keep data current
+2. **Track usage** with `hoards sync --usage` to find unused tools
+3. **Create bundles** for tools you install on new machines
+4. **Backup** before major changes: `hoards export -o backup.json`
+5. **Use AI enrichment** to auto-categorize and describe tools
+6. **Sync GitHub data** for better descriptions and topics

@@ -44,6 +44,14 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for branching strategy and commit conve
 - Keep functions focused and single-purpose
 - Use builder pattern for structs
 
+### Documentation Requirements
+**IMPORTANT**: After implementing any new feature, update ALL relevant documentation:
+- `README.md` - Quick reference and examples
+- `docs/USER_GUIDE.md` - Detailed usage instructions
+- `docs/API.md` - Library exports and programmatic usage
+- `docs/MIGRATION.md` - If commands changed
+- `docs/IMPLEMENTATION_PLAN.md` - Mark tasks complete
+
 ## Architecture
 
 ```
