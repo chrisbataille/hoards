@@ -26,7 +26,7 @@ pub use commands::{
     get_safe_uninstall_command, validate_package_name,
 };
 pub use config::{AiProvider, HoardConfig};
-pub use db::Database;
+pub use db::{CachedExtraction, Database};
 pub use models::{Bundle, Config, InstallSource, Interest, Tool};
 pub use scanner::{
     KNOWN_TOOLS, is_installed, scan_known_tools, scan_missing_tools, scan_path_tools,

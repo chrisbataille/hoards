@@ -404,9 +404,10 @@ pub fn cmd_ai_extract(
     delay_ms: u64,
 ) -> Result<()> {
     use crate::ai::{
-        ExtractedTool, cache_extraction, extract_prompt, fetch_readme, fetch_repo_version,
-        get_cached_extraction, invoke_ai, parse_extract_response, parse_github_url,
+        ExtractedTool, extract_prompt, fetch_readme, fetch_repo_version, invoke_ai,
+        parse_extract_response, parse_github_url,
     };
+    use crate::db::CachedExtraction;
     use crate::{InstallSource, Tool};
     use dialoguer::Confirm;
     use std::thread;
@@ -455,9 +456,17 @@ pub fn cmd_ai_extract(
             }
         };
 
-        if let Some(cached) = get_cached_extraction(&owner, &repo, &version) {
+        if let Ok(Some(cached)) = db.get_cached_extraction(&owner, &repo, &version) {
             println!("  {} Using cached extraction", "+".green());
-            extracted.push((owner, repo, cached));
+            let tool = ExtractedTool {
+                name: cached.name,
+                binary: cached.binary,
+                source: cached.source,
+                install_command: cached.install_command,
+                description: cached.description,
+                category: cached.category,
+            };
+            extracted.push((owner, repo, tool));
             continue;
         }
 
@@ -494,7 +503,19 @@ pub fn cmd_ai_extract(
         };
 
         // Cache the result
-        if let Err(e) = cache_extraction(&owner, &repo, &version, &tool) {
+        let cached = CachedExtraction {
+            repo_owner: owner.clone(),
+            repo_name: repo.clone(),
+            version: version.clone(),
+            name: tool.name.clone(),
+            binary: tool.binary.clone(),
+            source: tool.source.clone(),
+            install_command: tool.install_command.clone(),
+            description: tool.description.clone(),
+            category: tool.category.clone(),
+            extracted_at: chrono::Utc::now().to_rfc3339(),
+        };
+        if let Err(e) = db.cache_extraction(&cached) {
             println!("  {} Cache write failed: {}", "!".yellow(), e);
         }
 

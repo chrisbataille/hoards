@@ -301,68 +301,6 @@ pub struct ExtractedTool {
     pub category: String,
 }
 
-/// Cache entry for extracted tool info
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-struct ExtractCache {
-    /// Repository owner/name
-    repo: String,
-    /// Commit SHA or tag at time of extraction
-    version: String,
-    /// Extracted tool info
-    tool: ExtractedTool,
-    /// Timestamp of extraction
-    extracted_at: String,
-}
-
-/// Get the cache directory for extractions
-fn extract_cache_dir() -> Result<PathBuf> {
-    let cache_dir = dirs::cache_dir()
-        .context("Could not determine cache directory")?
-        .join("hoards")
-        .join("extractions");
-    std::fs::create_dir_all(&cache_dir)?;
-    Ok(cache_dir)
-}
-
-/// Get cache file path for a repo
-fn cache_path_for_repo(owner: &str, repo: &str) -> Result<PathBuf> {
-    let cache_dir = extract_cache_dir()?;
-    Ok(cache_dir.join(format!("{}_{}.json", owner, repo)))
-}
-
-/// Check cache for an extraction
-pub fn get_cached_extraction(owner: &str, repo: &str, version: &str) -> Option<ExtractedTool> {
-    let path = cache_path_for_repo(owner, repo).ok()?;
-    let content = std::fs::read_to_string(&path).ok()?;
-    let cache: ExtractCache = serde_json::from_str(&content).ok()?;
-
-    // Only return if version matches
-    if cache.version == version {
-        Some(cache.tool)
-    } else {
-        None
-    }
-}
-
-/// Save extraction to cache
-pub fn cache_extraction(
-    owner: &str,
-    repo: &str,
-    version: &str,
-    tool: &ExtractedTool,
-) -> Result<()> {
-    let path = cache_path_for_repo(owner, repo)?;
-    let cache = ExtractCache {
-        repo: format!("{}/{}", owner, repo),
-        version: version.to_string(),
-        tool: tool.clone(),
-        extracted_at: chrono::Utc::now().to_rfc3339(),
-    };
-    let content = serde_json::to_string_pretty(&cache)?;
-    std::fs::write(&path, content)?;
-    Ok(())
-}
-
 /// Parse a GitHub URL to extract owner and repo
 pub fn parse_github_url(url: &str) -> Result<(String, String)> {
     // Handle various GitHub URL formats:
