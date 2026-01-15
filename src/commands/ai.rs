@@ -4,8 +4,12 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use std::io::IsTerminal;
 use std::process::Command;
 
+use crate::commands::install::{
+    SafeCommand, get_safe_install_command, get_safe_uninstall_command, validate_package_name,
+};
 use crate::{AiProvider, Database, HoardConfig};
 
 /// Set the AI provider
@@ -305,7 +309,7 @@ pub fn cmd_ai_suggest_bundle(count: usize) -> Result<()> {
         display_bundle_suggestion(i + 1, suggestion, &usage_data);
 
         // Interactive mode if terminal is available
-        if atty::is(atty::Stream::Stdout) {
+        if std::io::stdout().is_terminal() {
             let action = prompt_bundle_action(suggestion)?;
             match action {
                 BundleAction::Create => {
@@ -326,7 +330,7 @@ pub fn cmd_ai_suggest_bundle(count: usize) -> Result<()> {
         }
     }
 
-    if !atty::is(atty::Stream::Stdout) {
+    if !std::io::stdout().is_terminal() {
         // Non-interactive mode - just show commands
         println!(
             "{} Create a bundle with: {}",
@@ -1394,14 +1398,27 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
             }
         }
     } else if let Some(ref cmd) = install_cmd {
-        // Fallback to shell command (less safe but works for more sources)
-        match std::process::Command::new("sh").arg("-c").arg(cmd).status() {
-            Ok(status) => status.success(),
-            Err(e) => {
-                spinner.finish_and_clear();
-                println!("  {} Install error: {}", "!".red(), e);
-                false
+        // Try to parse the install command and construct a SafeCommand
+        // This is safer than executing arbitrary shell commands
+        let parsed_cmd = parse_install_cmd_to_safe_command(cmd);
+        if let Some(safe_cmd) = parsed_cmd {
+            match safe_cmd.execute() {
+                Ok(status) => status.success(),
+                Err(e) => {
+                    spinner.finish_and_clear();
+                    println!("  {} Install error: {}", "!".red(), e);
+                    false
+                }
             }
+        } else {
+            // Cannot safely execute this command - inform user
+            spinner.finish_and_clear();
+            println!(
+                "  {} Cannot auto-install: unrecognized command format",
+                "!".yellow()
+            );
+            println!("  {} Manual install required: {}", ">".dimmed(), cmd);
+            false
         }
     } else {
         false
@@ -1942,7 +1959,7 @@ pub fn cmd_ai_migrate(
     }
 
     // 7. Interactive selection (only in TTY)
-    if !atty::is(atty::Stream::Stdout) {
+    if !std::io::stdout().is_terminal() {
         print_migration_commands(&result);
         return Ok(());
     }
@@ -2147,17 +2164,23 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
             continue;
         }
 
-        // 1. Install from new source
-        let install_cmd = match candidate.to_source.as_str() {
-            "cargo" => format!("cargo install {}", candidate.to_package_name),
-            "pip" => format!("pip install {}", candidate.to_package_name),
-            "npm" => format!("npm install -g {}", candidate.to_package_name),
-            _ => {
+        // 1. Install from new source using SafeCommand
+        let safe_install_cmd = match get_safe_install_command(
+            &candidate.to_package_name,
+            &candidate.to_source,
+            None,
+        ) {
+            Ok(Some(cmd)) => cmd,
+            Ok(None) => {
                 println!(
                     "  {} Cannot auto-install from {}",
                     "!".yellow(),
                     candidate.to_source
                 );
+                continue;
+            }
+            Err(e) => {
+                println!("  {} Invalid package name: {}", "!".red(), e);
                 continue;
             }
         };
@@ -2171,20 +2194,19 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
         spinner.set_message(format!("Installing from {}...", candidate.to_source));
         spinner.enable_steady_tick(Duration::from_millis(80));
 
-        let install_result = Command::new("sh").arg("-c").arg(&install_cmd).output();
+        let install_result = safe_install_cmd.execute();
 
         spinner.finish_and_clear();
 
         match install_result {
-            Ok(output) if output.status.success() => {
+            Ok(status) if status.success() => {
                 println!("  {} Installed from {}", "+".green(), candidate.to_source);
             }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
+            Ok(_status) => {
                 println!(
-                    "  {} Failed to install: {}",
+                    "  {} Failed to install from {}",
                     "!".red(),
-                    stderr.lines().next().unwrap_or("unknown error")
+                    candidate.to_source
                 );
                 continue;
             }
@@ -2194,22 +2216,26 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
             }
         }
 
-        // 2. Uninstall from old source
-        let (uninstall_cmd, needs_sudo) = match candidate.from_source.as_str() {
-            "apt" => (format!("sudo apt remove -y {}", candidate.name), true),
-            "snap" => (format!("sudo snap remove {}", candidate.name), true),
-            "cargo" => (format!("cargo uninstall {}", candidate.name), false),
-            "pip" => (format!("pip uninstall -y {}", candidate.name), false),
-            "npm" => (format!("npm uninstall -g {}", candidate.name), false),
-            _ => {
-                println!(
-                    "  {} Skipping uninstall from {} (manual removal needed)",
-                    "!".yellow(),
-                    candidate.from_source
-                );
-                continue;
-            }
-        };
+        // 2. Uninstall from old source using SafeCommand
+        let safe_uninstall_cmd =
+            match get_safe_uninstall_command(&candidate.name, &candidate.from_source) {
+                Ok(Some(cmd)) => cmd,
+                Ok(None) => {
+                    println!(
+                        "  {} Skipping uninstall from {} (manual removal needed)",
+                        "!".yellow(),
+                        candidate.from_source
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    println!("  {} Invalid package name: {}", "!".red(), e);
+                    continue;
+                }
+            };
+
+        // Check if this is a sudo command (apt, snap)
+        let needs_sudo = safe_uninstall_cmd.program == "sudo";
 
         // For sudo commands, we need to inherit stdio so the user can enter password
         let uninstall_success = if needs_sudo {
@@ -2218,9 +2244,8 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
                 ">".cyan(),
                 candidate.from_source
             );
-            match Command::new("sh")
-                .arg("-c")
-                .arg(&uninstall_cmd)
+            match Command::new(safe_uninstall_cmd.program)
+                .args(&safe_uninstall_cmd.args)
                 .stdin(std::process::Stdio::inherit())
                 .stdout(std::process::Stdio::inherit())
                 .stderr(std::process::Stdio::inherit())
@@ -2242,12 +2267,12 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
             spinner.set_message(format!("Removing from {}...", candidate.from_source));
             spinner.enable_steady_tick(Duration::from_millis(80));
 
-            let result = Command::new("sh").arg("-c").arg(&uninstall_cmd).output();
+            let result = safe_uninstall_cmd.execute();
 
             spinner.finish_and_clear();
 
             match result {
-                Ok(output) => output.status.success(),
+                Ok(status) => status.success(),
                 Err(e) => {
                     println!("  {} Uninstall warning: {}", "!".yellow(), e);
                     false
@@ -2276,4 +2301,114 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
     }
 
     Ok(())
+}
+
+// ==================== Safe Command Parsing ====================
+
+/// Parse an install command string into a SafeCommand
+/// Returns None if the command cannot be safely parsed
+fn parse_install_cmd_to_safe_command(cmd: &str) -> Option<SafeCommand> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    // Validate that we're dealing with a known package manager
+    match parts.as_slice() {
+        // cargo install <package>
+        ["cargo", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "cargo",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // pip install <package>
+        ["pip", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        ["pip3", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip3",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // pip install --upgrade <package>
+        ["pip", "install", "--upgrade", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip",
+                args: vec!["install".into(), "--upgrade".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        ["pip3", "install", "--upgrade", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip3",
+                args: vec!["install".into(), "--upgrade".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // npm install -g <package>
+        ["npm", "install", "-g", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "npm",
+                args: vec!["install".into(), "-g".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // brew install <package>
+        ["brew", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "brew",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // sudo apt install -y <package>
+        ["sudo", "apt", "install", "-y", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "sudo",
+                args: vec![
+                    "apt".into(),
+                    "install".into(),
+                    "-y".into(),
+                    (*package).into(),
+                ],
+                display: cmd.into(),
+            })
+        }
+        // sudo snap install <package>
+        ["sudo", "snap", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "sudo",
+                args: vec!["snap".into(), "install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // flatpak install -y <package>
+        ["flatpak", "install", "-y", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "flatpak",
+                args: vec!["install".into(), "-y".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // Unrecognized command pattern
+        _ => None,
+    }
 }

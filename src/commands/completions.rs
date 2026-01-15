@@ -4,6 +4,7 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 /// Completion installation status for a shell
@@ -227,7 +228,7 @@ fn check_zsh_fpath(completion_path: &std::path::Path) -> Result<()> {
     println!("     {}", "autoload -Uz compinit && compinit".cyan());
 
     // Offer to add automatically
-    if atty::is(atty::Stream::Stdout) {
+    if std::io::stdout().is_terminal() {
         use dialoguer::Confirm;
 
         println!();

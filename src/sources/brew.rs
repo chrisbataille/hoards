@@ -1,6 +1,7 @@
 //! Homebrew package source
 
-use super::{PackageSource, http_agent};
+use super::PackageSource;
+use crate::http::HTTP_AGENT;
 use crate::models::{InstallSource, Tool};
 use crate::scanner::{KNOWN_TOOLS, is_installed};
 use anyhow::Result;
@@ -65,7 +66,7 @@ impl PackageSource for BrewSource {
 
     fn fetch_description(&self, package: &str) -> Option<String> {
         let url = format!("https://formulae.brew.sh/api/formula/{}.json", package);
-        let mut response = http_agent().get(&url).call().ok()?;
+        let mut response = HTTP_AGENT.get(&url).call().ok()?;
         let json: serde_json::Value = response.body_mut().read_json().ok()?;
 
         json.get("desc")?
@@ -88,7 +89,7 @@ impl PackageSource for BrewSource {
 
     fn check_update(&self, package: &str, _current_version: &str) -> Option<String> {
         let url = format!("https://formulae.brew.sh/api/formula/{}.json", package);
-        let mut response = http_agent().get(&url).call().ok()?;
+        let mut response = HTTP_AGENT.get(&url).call().ok()?;
         let json: serde_json::Value = response.body_mut().read_json().ok()?;
 
         json.get("versions")?

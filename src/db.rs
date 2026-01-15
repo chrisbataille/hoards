@@ -591,7 +591,9 @@ impl Database {
 
     /// Create a new bundle
     pub fn create_bundle(&self, bundle: &Bundle) -> Result<i64> {
-        self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+
+        tx.execute(
             "INSERT INTO bundles (name, description, created_at) VALUES (?1, ?2, ?3)",
             params![
                 bundle.name,
@@ -602,14 +604,15 @@ impl Database {
 
         let bundle_id = self.conn.last_insert_rowid();
 
-        // Insert bundle tools
+        // Insert bundle tools in transaction
         for tool_name in &bundle.tools {
-            self.conn.execute(
+            tx.execute(
                 "INSERT INTO bundle_tools (bundle_id, tool_name) VALUES (?1, ?2)",
                 params![bundle_id, tool_name],
             )?;
         }
 
+        tx.commit()?;
         Ok(bundle_id)
     }
 
@@ -715,13 +718,15 @@ impl Database {
             Err(e) => return Err(e.into()),
         };
 
+        let tx = self.conn.unchecked_transaction()?;
         for tool_name in tools {
             // Use INSERT OR IGNORE to skip duplicates
-            self.conn.execute(
+            tx.execute(
                 "INSERT OR IGNORE INTO bundle_tools (bundle_id, tool_name) VALUES (?1, ?2)",
                 params![bundle_id, tool_name],
             )?;
         }
+        tx.commit()?;
 
         Ok(true)
     }
@@ -738,12 +743,14 @@ impl Database {
             Err(e) => return Err(e.into()),
         };
 
+        let tx = self.conn.unchecked_transaction()?;
         for tool_name in tools {
-            self.conn.execute(
+            tx.execute(
                 "DELETE FROM bundle_tools WHERE bundle_id = ?1 AND tool_name = ?2",
                 params![bundle_id, tool_name],
             )?;
         }
+        tx.commit()?;
 
         Ok(true)
     }
@@ -774,12 +781,14 @@ impl Database {
                 Err(e) => return Err(e.into()),
             };
 
+        let tx = self.conn.unchecked_transaction()?;
         for label in labels {
-            self.conn.execute(
+            tx.execute(
                 "INSERT OR IGNORE INTO tool_labels (tool_id, label) VALUES (?1, ?2)",
                 params![tool_id, label.to_lowercase()],
             )?;
         }
+        tx.commit()?;
 
         Ok(true)
     }

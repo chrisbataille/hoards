@@ -52,6 +52,10 @@ pub enum ProcessAction {
 
 /// Check if a binary is currently running
 pub fn is_process_running(binary_name: &str) -> bool {
+    // Validate binary name to prevent injection
+    if validate_binary_name(binary_name).is_err() {
+        return false;
+    }
     // Use pgrep to check if process is running
     Command::new("pgrep")
         .arg("-x")
@@ -63,6 +67,10 @@ pub fn is_process_running(binary_name: &str) -> bool {
 
 /// Get PIDs of running processes matching the binary name
 pub fn get_running_pids(binary_name: &str) -> Vec<u32> {
+    // Validate binary name to prevent injection
+    if validate_binary_name(binary_name).is_err() {
+        return Vec::new();
+    }
     Command::new("pgrep")
         .arg("-x")
         .arg(binary_name)
@@ -209,6 +217,33 @@ pub fn validate_package_name(name: &str) -> Result<()> {
     // Prevent path traversal
     if name.contains("..") {
         anyhow::bail!("Package name cannot contain '..'");
+    }
+    Ok(())
+}
+
+/// Validate a binary name to prevent command injection in process detection
+/// More restrictive than package names - no @ or / allowed
+pub fn validate_binary_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        anyhow::bail!("Binary name cannot be empty");
+    }
+    if name.len() > 100 {
+        anyhow::bail!("Binary name too long (max 100 characters)");
+    }
+    // Binary names: alphanumeric, dash, underscore, dot only
+    let valid = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.');
+    if !valid {
+        anyhow::bail!(
+            "Binary name '{}' contains invalid characters. \
+             Only alphanumeric, dash, underscore, and dot are allowed.",
+            name
+        );
+    }
+    // Prevent path traversal
+    if name.contains("..") {
+        anyhow::bail!("Binary name cannot contain '..'");
     }
     Ok(())
 }
