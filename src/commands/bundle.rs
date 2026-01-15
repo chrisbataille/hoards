@@ -119,6 +119,7 @@ pub fn cmd_bundle_show(db: &Database, name: &str) -> Result<()> {
             Cell::new("Tool").fg(Color::Cyan),
             Cell::new("Src").fg(Color::Cyan),
             Cell::new("✓").fg(Color::Cyan),
+            Cell::new("Description").fg(Color::Cyan),
         ]);
 
     let mut installed_count = 0;
@@ -131,16 +132,19 @@ pub fn cmd_bundle_show(db: &Database, name: &str) -> Result<()> {
             } else {
                 (status_icon(false), Color::Red)
             };
+            let desc = tool.description.as_deref().unwrap_or("-");
             table.add_row(vec![
                 Cell::new(tool_name),
                 Cell::new(src_icon),
                 Cell::new(status).fg(color),
+                Cell::new(desc),
             ]);
         } else {
             table.add_row(vec![
                 Cell::new(tool_name),
                 Cell::new("?"),
                 Cell::new("⚠").fg(Color::Yellow),
+                Cell::new("not in database"),
             ]);
         }
     }
