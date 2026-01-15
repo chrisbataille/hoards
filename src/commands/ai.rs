@@ -2177,12 +2177,12 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
         }
 
         // 2. Uninstall from old source
-        let uninstall_cmd = match candidate.from_source.as_str() {
-            "apt" => format!("sudo apt remove -y {}", candidate.name),
-            "snap" => format!("sudo snap remove {}", candidate.name),
-            "cargo" => format!("cargo uninstall {}", candidate.name),
-            "pip" => format!("pip uninstall -y {}", candidate.name),
-            "npm" => format!("npm uninstall -g {}", candidate.name),
+        let (uninstall_cmd, needs_sudo) = match candidate.from_source.as_str() {
+            "apt" => (format!("sudo apt remove -y {}", candidate.name), true),
+            "snap" => (format!("sudo snap remove {}", candidate.name), true),
+            "cargo" => (format!("cargo uninstall {}", candidate.name), false),
+            "pip" => (format!("pip uninstall -y {}", candidate.name), false),
+            "npm" => (format!("npm uninstall -g {}", candidate.name), false),
             _ => {
                 println!(
                     "  {} Skipping uninstall from {} (manual removal needed)",
@@ -2193,33 +2193,58 @@ fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]
             }
         };
 
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.cyan} {msg}")
-                .unwrap(),
-        );
-        spinner.set_message(format!("Removing from {}...", candidate.from_source));
-        spinner.enable_steady_tick(Duration::from_millis(80));
-
-        let uninstall_result = Command::new("sh").arg("-c").arg(&uninstall_cmd).output();
-
-        spinner.finish_and_clear();
-
-        match uninstall_result {
-            Ok(output) if output.status.success() => {
-                println!("  {} Removed from {}", "+".green(), candidate.from_source);
+        // For sudo commands, we need to inherit stdio so the user can enter password
+        let uninstall_success = if needs_sudo {
+            println!(
+                "  {} Removing from {} (may prompt for password)...",
+                ">".cyan(),
+                candidate.from_source
+            );
+            match Command::new("sh")
+                .arg("-c")
+                .arg(&uninstall_cmd)
+                .stdin(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status()
+            {
+                Ok(status) => status.success(),
+                Err(e) => {
+                    println!("  {} Uninstall warning: {}", "!".yellow(), e);
+                    false
+                }
             }
-            Ok(_) => {
-                println!(
-                    "  {} Could not remove from {} (may need manual cleanup)",
-                    "!".yellow(),
-                    candidate.from_source
-                );
+        } else {
+            let spinner = ProgressBar::new_spinner();
+            spinner.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.cyan} {msg}")
+                    .unwrap(),
+            );
+            spinner.set_message(format!("Removing from {}...", candidate.from_source));
+            spinner.enable_steady_tick(Duration::from_millis(80));
+
+            let result = Command::new("sh").arg("-c").arg(&uninstall_cmd).output();
+
+            spinner.finish_and_clear();
+
+            match result {
+                Ok(output) => output.status.success(),
+                Err(e) => {
+                    println!("  {} Uninstall warning: {}", "!".yellow(), e);
+                    false
+                }
             }
-            Err(e) => {
-                println!("  {} Uninstall warning: {}", "!".yellow(), e);
-            }
+        };
+
+        if uninstall_success {
+            println!("  {} Removed from {}", "+".green(), candidate.from_source);
+        } else {
+            println!(
+                "  {} Could not remove from {} (may need manual cleanup)",
+                "!".yellow(),
+                candidate.from_source
+            );
         }
 
         // 3. Update database
