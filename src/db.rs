@@ -258,6 +258,15 @@ impl Database {
         Ok(rows > 0)
     }
 
+    /// Update only the source of a tool (for migration between package sources)
+    pub fn update_tool_source(&self, name: &str, source: &str) -> Result<bool> {
+        let rows = self.conn.execute(
+            "UPDATE tools SET source = ?1, updated_at = ?2 WHERE name = ?3",
+            params![source, Utc::now().to_rfc3339(), name],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// Get a tool by name
     pub fn get_tool_by_name(&self, name: &str) -> Result<Option<Tool>> {
         let mut stmt = self.conn.prepare(

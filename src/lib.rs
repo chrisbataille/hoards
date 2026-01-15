@@ -17,7 +17,7 @@ pub use cli::{
 };
 pub use commands::{
     SafeCommand, cmd_ai_analyze, cmd_ai_bundle_cheatsheet, cmd_ai_categorize, cmd_ai_cheatsheet,
-    cmd_ai_describe, cmd_ai_discover, cmd_ai_extract, cmd_ai_set, cmd_ai_show,
+    cmd_ai_describe, cmd_ai_discover, cmd_ai_extract, cmd_ai_migrate, cmd_ai_set, cmd_ai_show,
     cmd_ai_suggest_bundle, cmd_ai_test, cmd_bundle_add, cmd_bundle_create, cmd_bundle_delete,
     cmd_bundle_install, cmd_bundle_list, cmd_bundle_remove, cmd_bundle_show, cmd_bundle_update,
     cmd_completions_install, cmd_completions_status, cmd_completions_uninstall, cmd_config_edit,

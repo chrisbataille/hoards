@@ -184,6 +184,17 @@ Respond with JSON:
 {"insight": "Your personalized analysis here"}
 "#;
 
+const DEFAULT_MIGRATE_PROMPT: &str = r#"For each tool being migrated between package sources, provide a brief benefit description (5-10 words) explaining why the newer version is better.
+
+Tools being migrated:
+{{TOOLS}}
+
+For each tool, explain the key improvement in the newer version (e.g., new features, performance improvements, bug fixes).
+
+Respond with JSON:
+{"benefits": {"tool_name": "brief benefit description", ...}}
+"#;
+
 // ==================== Modern tool replacements ====================
 
 /// A mapping from a traditional Unix tool to its modern replacement
@@ -337,6 +348,25 @@ pub struct AnalysisResult {
     pub tips: Vec<AnalyzeTip>,
     pub underutilized: Vec<UnderutilizedTool>,
     pub ai_insight: Option<String>,
+}
+
+/// A tool that can be migrated to a different source
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationCandidate {
+    pub name: String,
+    pub from_source: String,
+    pub from_version: String,
+    pub to_source: String,
+    pub to_version: String,
+    pub to_package_name: String, // Package name on target source (may differ)
+    pub benefit: Option<String>, // AI-generated
+}
+
+/// Result of migration analysis
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MigrationResult {
+    pub candidates: Vec<MigrationCandidate>,
+    pub ai_summary: Option<String>,
 }
 
 // ==================== Prompt loading ====================
@@ -932,6 +962,38 @@ pub fn parse_analyze_response(response: &str) -> Result<String> {
     let insight: AnalyzeInsight =
         serde_json::from_str(&json_str).context("Failed to parse analyze response")?;
     Ok(insight.insight)
+}
+
+/// Build prompt for migration benefit descriptions
+pub fn migrate_prompt(tools: &[(String, String, String, String, String)]) -> String {
+    let prompt_template = load_prompt("migrate", DEFAULT_MIGRATE_PROMPT);
+
+    let tools_str = tools
+        .iter()
+        .map(|(name, from_source, from_ver, to_source, to_ver)| {
+            format!(
+                "- {} ({} {} → {} {})",
+                name, from_source, from_ver, to_source, to_ver
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    prompt_template.replace("{{TOOLS}}", &tools_str)
+}
+
+/// Parse migration benefits response from AI
+pub fn parse_migrate_response(response: &str) -> Result<std::collections::HashMap<String, String>> {
+    let json_str = extract_json_object(response)?;
+
+    #[derive(serde::Deserialize)]
+    struct MigrateBenefits {
+        benefits: std::collections::HashMap<String, String>,
+    }
+
+    let result: MigrateBenefits =
+        serde_json::from_str(&json_str).context("Failed to parse migrate response")?;
+    Ok(result.benefits)
 }
 
 /// Check if a binary is installed on the system

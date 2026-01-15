@@ -630,6 +630,29 @@ pub fn check_cross_source_upgrades(tools: &[(String, String, String)]) -> Vec<Cr
     upgrades
 }
 
+/// Get migration candidates with optional source filtering
+///
+/// Wraps `check_cross_source_upgrades` with source filtering capability.
+pub fn get_migration_candidates(
+    tools: &[(String, String, String)],
+    from_source: Option<&str>,
+    to_source: Option<&str>,
+) -> Vec<CrossSourceUpgrade> {
+    let mut upgrades = check_cross_source_upgrades(tools);
+
+    // Filter by from_source if specified
+    if let Some(from) = from_source {
+        upgrades.retain(|u| u.current_source == from);
+    }
+
+    // Filter by to_source if specified
+    if let Some(to) = to_source {
+        upgrades.retain(|u| u.better_source == to);
+    }
+
+    upgrades
+}
+
 /// Check if a version string is a stable release (not alpha, beta, rc, dev, etc.)
 fn is_stable_version(v: &str) -> bool {
     // A stable version only contains digits, dots, and sometimes underscores

@@ -650,6 +650,38 @@ pub enum AiCommands {
         min_uses: i64,
     },
 
+    /// Migrate tools between package sources
+    ///
+    /// Find tools that have newer versions on other package sources and migrate them.
+    /// For example, migrate bat from apt to cargo to get the latest version.
+    #[command(after_help = "Examples:
+  hoards ai migrate                    # Auto-detect best migrations
+  hoards ai migrate --from apt         # Migrate from apt only
+  hoards ai migrate --from apt --to cargo  # Explicit source pair
+  hoards ai migrate --dry-run          # Preview without executing
+  hoards ai migrate --json             # JSON output for scripts")]
+    Migrate {
+        /// Source to migrate from (e.g., apt, snap)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Source to migrate to (e.g., cargo, pip, npm)
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Preview migration without executing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output as JSON for programmatic use
+        #[arg(long)]
+        json: bool,
+
+        /// Skip AI benefit descriptions (faster)
+        #[arg(long)]
+        no_ai: bool,
+    },
+
     // Hidden aliases for backward compatibility
     /// Set the AI provider (use 'ai config set' instead)
     #[command(hide = true)]
