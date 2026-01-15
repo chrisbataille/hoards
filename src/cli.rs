@@ -606,6 +606,82 @@ pub enum AiCommands {
         refresh: bool,
     },
 
+    /// Discover tools based on natural language description
+    ///
+    /// Describe what you're working on and get AI-powered recommendations
+    /// for relevant tools, with GitHub popularity and install options.
+    Discover {
+        /// What you're looking for (e.g., "kubernetes development", "rust CLI tools")
+        query: String,
+
+        /// Maximum number of recommendations
+        #[arg(short, long, default_value = "10")]
+        limit: usize,
+
+        /// Skip GitHub stars lookup (faster)
+        #[arg(long)]
+        no_stars: bool,
+
+        /// Just show recommendations, don't prompt to install
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Analyze your CLI usage and suggest optimizations
+    ///
+    /// Detects when you use traditional Unix tools but have modern alternatives installed.
+    /// Identifies high-value unused tools and provides personalized tips.
+    #[command(after_help = "Examples:
+  hoards ai analyze              # Full analysis with AI insights
+  hoards ai analyze --no-ai      # Static rules only (fast)
+  hoards ai analyze --json       # JSON output for scripts
+  hoards ai analyze --min-uses 5 # Lower threshold")]
+    Analyze {
+        /// Output as JSON for programmatic use
+        #[arg(long)]
+        json: bool,
+
+        /// Skip AI-generated insights (faster, static rules only)
+        #[arg(long)]
+        no_ai: bool,
+
+        /// Minimum usage count to consider a traditional tool (default: 10)
+        #[arg(long, default_value = "10")]
+        min_uses: i64,
+    },
+
+    /// Migrate tools between package sources
+    ///
+    /// Find tools that have newer versions on other package sources and migrate them.
+    /// For example, migrate bat from apt to cargo to get the latest version.
+    #[command(after_help = "Examples:
+  hoards ai migrate                    # Auto-detect best migrations
+  hoards ai migrate --from apt         # Migrate from apt only
+  hoards ai migrate --from apt --to cargo  # Explicit source pair
+  hoards ai migrate --dry-run          # Preview without executing
+  hoards ai migrate --json             # JSON output for scripts")]
+    Migrate {
+        /// Source to migrate from (e.g., apt, snap)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Source to migrate to (e.g., cargo, pip, npm)
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Preview migration without executing
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output as JSON for programmatic use
+        #[arg(long)]
+        json: bool,
+
+        /// Skip AI benefit descriptions (faster)
+        #[arg(long)]
+        no_ai: bool,
+    },
+
     // Hidden aliases for backward compatibility
     /// Set the AI provider (use 'ai config set' instead)
     #[command(hide = true)]

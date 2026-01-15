@@ -2,10 +2,14 @@
 //!
 //! Commands for AI-assisted tool management using various AI providers.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
+use std::io::IsTerminal;
 use std::process::Command;
 
+use crate::commands::install::{
+    SafeCommand, get_safe_install_command, get_safe_uninstall_command, validate_package_name,
+};
 use crate::{AiProvider, Database, HoardConfig};
 
 /// Set the AI provider
@@ -305,7 +309,7 @@ pub fn cmd_ai_suggest_bundle(count: usize) -> Result<()> {
         display_bundle_suggestion(i + 1, suggestion, &usage_data);
 
         // Interactive mode if terminal is available
-        if atty::is(atty::Stream::Stdout) {
+        if std::io::stdout().is_terminal() {
             let action = prompt_bundle_action(suggestion)?;
             match action {
                 BundleAction::Create => {
@@ -326,7 +330,7 @@ pub fn cmd_ai_suggest_bundle(count: usize) -> Result<()> {
         }
     }
 
-    if !atty::is(atty::Stream::Stdout) {
+    if !std::io::stdout().is_terminal() {
         // Non-interactive mode - just show commands
         println!(
             "{} Create a bundle with: {}",
@@ -1059,4 +1063,1352 @@ fn cache_bundle_cheatsheet(
 struct CachedBundleCheatsheet {
     versions: std::collections::HashMap<String, String>,
     cheatsheet: crate::ai::Cheatsheet,
+}
+
+// ==================== AI Discovery ====================
+
+/// Discover tools based on natural language query
+pub fn cmd_ai_discover(
+    db: &Database,
+    query: &str,
+    limit: usize,
+    no_stars: bool,
+    dry_run: bool,
+) -> Result<()> {
+    use crate::ai::{ToolRecommendation, discovery_prompt, invoke_ai, parse_discovery_response};
+    use crate::scanner::is_installed;
+    use dialoguer::{MultiSelect, theme::ColorfulTheme};
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    println!("{} Discovering tools for: {}", ">".cyan(), query.bold());
+
+    // Gather installed tools for context
+    let installed_tools: Vec<String> = db
+        .get_all_tools()?
+        .iter()
+        .filter(|t| t.is_installed)
+        .map(|t| t.name.clone())
+        .collect();
+
+    println!(
+        "{} Context: {} installed tools",
+        ">".dimmed(),
+        installed_tools.len()
+    );
+
+    // Generate prompt and call AI with spinner
+    let prompt = discovery_prompt(query, &installed_tools);
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("Asking AI for recommendations...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let response = invoke_ai(&prompt)?;
+    spinner.finish_and_clear();
+
+    // Parse response
+    let mut discovery = parse_discovery_response(&response)?;
+
+    // Limit results
+    if discovery.tools.len() > limit {
+        discovery.tools.truncate(limit);
+    }
+
+    // Check installation status and optionally fetch GitHub stars
+    if !no_stars && discovery.tools.iter().any(|t| t.github.is_some()) {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+        let total = discovery.tools.len();
+        for (i, tool) in discovery.tools.iter_mut().enumerate() {
+            let binary = tool.binary.as_deref().unwrap_or(&tool.name);
+            tool.installed = is_installed(binary);
+
+            if let Some(ref github) = tool.github {
+                spinner.set_message(format!("Fetching GitHub stars ({}/{})...", i + 1, total));
+                if let Ok(stars) = fetch_github_stars(github) {
+                    tool.stars = Some(stars);
+                }
+            }
+        }
+        spinner.finish_and_clear();
+    } else {
+        // Just check installation status
+        for tool in &mut discovery.tools {
+            let binary = tool.binary.as_deref().unwrap_or(&tool.name);
+            tool.installed = is_installed(binary);
+        }
+    }
+
+    // Display results
+    println!();
+    println!("{}", discovery.summary.bold());
+    println!();
+
+    // Group by category
+    let essential: Vec<_> = discovery
+        .tools
+        .iter()
+        .filter(|t| t.category == "essential")
+        .collect();
+    let recommended: Vec<_> = discovery
+        .tools
+        .iter()
+        .filter(|t| t.category != "essential")
+        .collect();
+
+    if !essential.is_empty() {
+        println!("{}", "Essential:".green().bold());
+        for tool in &essential {
+            print_tool_recommendation(tool);
+        }
+        println!();
+    }
+
+    if !recommended.is_empty() {
+        println!("{}", "Recommended:".blue().bold());
+        for tool in &recommended {
+            print_tool_recommendation(tool);
+        }
+        println!();
+    }
+
+    // Filter to tools that can be installed
+    let installable: Vec<&ToolRecommendation> =
+        discovery.tools.iter().filter(|t| !t.installed).collect();
+
+    if installable.is_empty() {
+        println!(
+            "{} All recommended tools are already installed!",
+            "+".green()
+        );
+        return Ok(());
+    }
+
+    // In dry-run mode, show what could be installed but don't prompt
+    if dry_run {
+        println!("{}", "Available for installation:".bold());
+        for (i, tool) in installable.iter().enumerate() {
+            let stars = tool
+                .stars
+                .map(|s| format!(" ({}★)", format_stars(s)))
+                .unwrap_or_default();
+            println!(
+                "  {}. {} - {}{}",
+                i + 1,
+                tool.name.cyan(),
+                tool.description,
+                stars
+            );
+            if let Some(ref github) = tool.github {
+                println!("      GitHub: https://github.com/{}", github);
+            }
+            println!("      Install: {}", tool.install_cmd.dimmed());
+        }
+        println!();
+        println!(
+            "{} Run without {} to install interactively",
+            ">".cyan(),
+            "--dry-run".yellow()
+        );
+        return Ok(());
+    }
+
+    // Interactive selection
+    let options: Vec<String> = installable
+        .iter()
+        .map(|t| {
+            let stars = t
+                .stars
+                .map(|s| format!(" ({}★)", format_stars(s)))
+                .unwrap_or_default();
+            format!("{} - {}{}", t.name, t.description, stars)
+        })
+        .collect();
+
+    println!("{}", "Select tools to install:".bold());
+    let selections = MultiSelect::with_theme(&ColorfulTheme::default())
+        .items(&options)
+        .interact_opt()?;
+
+    if let Some(indices) = selections {
+        if indices.is_empty() {
+            println!("{} No tools selected", ">".dimmed());
+            return Ok(());
+        }
+
+        println!();
+        for idx in indices {
+            let tool = installable[idx];
+            install_discovered_tool(db, tool)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Install a tool discovered via AI, using proper extraction when possible
+fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) -> Result<()> {
+    use crate::ai::{
+        ExtractedTool, extract_prompt, fetch_readme, fetch_repo_version, invoke_ai,
+        parse_extract_response, parse_github_url,
+    };
+    use crate::commands::install::get_safe_install_command;
+    use crate::db::CachedExtraction;
+    use crate::models::{InstallSource, Tool};
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    println!("{} Installing {}...", ">".cyan(), tool.name.bold());
+
+    // If tool has a GitHub URL, try to extract proper info first
+    let extracted = if let Some(ref github) = tool.github {
+        let github_url = format!("https://github.com/{}", github);
+        match parse_github_url(&github_url) {
+            Ok((owner, repo)) => {
+                // Check cache first
+                let version = fetch_repo_version(&owner, &repo).unwrap_or_default();
+
+                if let Ok(Some(cached)) = db.get_cached_extraction(&owner, &repo, &version) {
+                    println!("  {} Using cached extraction", "+".green());
+                    Some(ExtractedTool {
+                        name: cached.name,
+                        binary: cached.binary,
+                        source: cached.source,
+                        install_command: cached.install_command,
+                        description: cached.description,
+                        category: cached.category,
+                    })
+                } else {
+                    // Try to extract from README with spinner
+                    let spinner = ProgressBar::new_spinner();
+                    spinner.set_style(
+                        ProgressStyle::default_spinner()
+                            .template("  {spinner:.cyan} {msg}")
+                            .unwrap(),
+                    );
+                    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+                    spinner.set_message("Fetching README from GitHub...");
+
+                    match fetch_readme(&owner, &repo) {
+                        Ok(readme) => {
+                            spinner.set_message("Extracting tool info with AI...");
+                            let prompt = extract_prompt(&readme);
+                            match invoke_ai(&prompt).and_then(|r| parse_extract_response(&r)) {
+                                Ok(ext) => {
+                                    spinner.finish_and_clear();
+                                    // Cache it
+                                    let cached = CachedExtraction {
+                                        repo_owner: owner.clone(),
+                                        repo_name: repo.clone(),
+                                        version: version.clone(),
+                                        name: ext.name.clone(),
+                                        binary: ext.binary.clone(),
+                                        source: ext.source.clone(),
+                                        install_command: ext.install_command.clone(),
+                                        description: ext.description.clone(),
+                                        category: ext.category.clone(),
+                                        extracted_at: chrono::Utc::now().to_rfc3339(),
+                                    };
+                                    let _ = db.cache_extraction(&cached);
+                                    println!("  {} Extracted install info", "+".green());
+                                    Some(ext)
+                                }
+                                Err(e) => {
+                                    spinner.finish_and_clear();
+                                    println!("  {} Extraction failed: {}", "!".yellow(), e);
+                                    None
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            spinner.finish_and_clear();
+                            println!("  {} Could not fetch README: {}", "!".yellow(), e);
+                            None
+                        }
+                    }
+                }
+            }
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    // Determine install details
+    let (name, source, install_cmd, description, category, binary) =
+        if let Some(ref ext) = extracted {
+            (
+                ext.name.clone(),
+                ext.source.clone(),
+                ext.install_command.clone(),
+                ext.description.clone(),
+                ext.category.clone(),
+                ext.binary.clone(),
+            )
+        } else {
+            (
+                tool.name.clone(),
+                tool.source.clone(),
+                Some(tool.install_cmd.clone()),
+                tool.description.clone(),
+                tool.category.clone(),
+                tool.binary.clone(),
+            )
+        };
+
+    // Try to use safe install command if we have a known source
+    let final_cmd = if let Some(safe_cmd) = get_safe_install_command(&name, &source, None)? {
+        println!("  {} Using: {}", ">".dimmed(), safe_cmd);
+        Some(safe_cmd)
+    } else if let Some(ref cmd) = install_cmd {
+        println!("  {} Using: {}", ">".dimmed(), cmd);
+        None // Will use shell command
+    } else {
+        println!("  {} No install command available", "!".red());
+        return Ok(());
+    };
+
+    // Execute installation with spinner
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("  {spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message(format!("Installing {}...", name));
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
+    let success = if let Some(safe_cmd) = final_cmd {
+        match safe_cmd.execute() {
+            Ok(status) => status.success(),
+            Err(e) => {
+                spinner.finish_and_clear();
+                println!("  {} Install error: {}", "!".red(), e);
+                false
+            }
+        }
+    } else if let Some(ref cmd) = install_cmd {
+        // Try to parse the install command and construct a SafeCommand
+        // This is safer than executing arbitrary shell commands
+        let parsed_cmd = parse_install_cmd_to_safe_command(cmd);
+        if let Some(safe_cmd) = parsed_cmd {
+            match safe_cmd.execute() {
+                Ok(status) => status.success(),
+                Err(e) => {
+                    spinner.finish_and_clear();
+                    println!("  {} Install error: {}", "!".red(), e);
+                    false
+                }
+            }
+        } else {
+            // Cannot safely execute this command - inform user
+            spinner.finish_and_clear();
+            println!(
+                "  {} Cannot auto-install: unrecognized command format",
+                "!".yellow()
+            );
+            println!("  {} Manual install required: {}", ">".dimmed(), cmd);
+            false
+        }
+    } else {
+        false
+    };
+
+    spinner.finish_and_clear();
+
+    if success {
+        println!("  {} Installed {}", "+".green(), name);
+
+        // Add to database with full metadata
+        if db.get_tool_by_name(&name)?.is_none() {
+            let mut new_tool = Tool::new(&name)
+                .with_description(&description)
+                .with_source(InstallSource::from(source.as_str()))
+                .with_category(&category)
+                .installed();
+
+            if let Some(ref bin) = binary {
+                new_tool = new_tool.with_binary(bin);
+            }
+            if let Some(ref cmd) = install_cmd {
+                new_tool = new_tool.with_install_command(cmd);
+            }
+
+            db.insert_tool(&new_tool)?;
+            println!("  {} Added to database", "+".green());
+        } else {
+            db.set_tool_installed(&name, true)?;
+        }
+
+        // Invalidate any cached cheatsheet
+        let _ = invalidate_cheatsheet_cache(db, &name);
+    } else {
+        println!("  {} Failed to install {}", "!".red(), name);
+    }
+
+    Ok(())
+}
+
+/// Print a single tool recommendation
+fn print_tool_recommendation(tool: &crate::ai::ToolRecommendation) {
+    let status = if tool.installed {
+        "✓".green().to_string()
+    } else {
+        " ".to_string()
+    };
+
+    let stars = tool
+        .stars
+        .map(|s| format!(" {}★", format_stars(s)).dimmed().to_string())
+        .unwrap_or_default();
+
+    println!(
+        "  {} {:<15} {}{}",
+        status,
+        tool.name.cyan(),
+        tool.description,
+        stars
+    );
+    println!("      {} {}", "→".dimmed(), tool.reason.dimmed());
+}
+
+/// Format star count (e.g., 12345 -> "12.3K")
+fn format_stars(stars: u64) -> String {
+    if stars >= 1000 {
+        format!("{:.1}K", stars as f64 / 1000.0)
+    } else {
+        stars.to_string()
+    }
+}
+
+/// Fetch GitHub stars for a repo
+fn fetch_github_stars(repo: &str) -> Result<u64> {
+    // Use the GitHub API
+    let url = format!("https://api.github.com/repos/{}", repo);
+
+    let mut response = ureq::get(&url)
+        .header("User-Agent", "hoards-cli")
+        .header("Accept", "application/vnd.github.v3+json")
+        .call()
+        .context("Failed to fetch GitHub info")?;
+
+    let body = response.body_mut().read_to_string()?;
+    let json: serde_json::Value = serde_json::from_str(&body)?;
+    let stars = json["stargazers_count"].as_u64().unwrap_or(0);
+
+    Ok(stars)
+}
+
+// ==================== AI Analyze ====================
+
+/// Detect shell aliases from config files
+///
+/// Returns a map of alias name -> target command
+fn detect_shell_aliases() -> std::collections::HashMap<String, String> {
+    use std::collections::HashMap;
+    use std::fs;
+
+    let mut aliases: HashMap<String, String> = HashMap::new();
+
+    // Check common shell config files
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return aliases,
+    };
+
+    let config_files = [
+        home.join(".bashrc"),
+        home.join(".bash_aliases"),
+        home.join(".zshrc"),
+        home.join(".zsh_aliases"),
+        home.join(".config/fish/config.fish"),
+        home.join(".config/fish/aliases.fish"),
+    ];
+
+    for file in &config_files {
+        if let Ok(content) = fs::read_to_string(file) {
+            // Parse bash/zsh style: alias name='command' or alias name="command"
+            for line in content.lines() {
+                let line = line.trim();
+                if let Some(rest) = line.strip_prefix("alias ") {
+                    // Handle: alias cat='bat' or alias cat="bat --paging=never"
+                    if let Some(eq_pos) = rest.find('=') {
+                        let name = rest[..eq_pos].trim();
+                        let value = rest[eq_pos + 1..].trim();
+                        // Remove surrounding quotes
+                        let value = value
+                            .strip_prefix('\'')
+                            .and_then(|v| v.strip_suffix('\''))
+                            .or_else(|| value.strip_prefix('"').and_then(|v| v.strip_suffix('"')))
+                            .unwrap_or(value);
+                        aliases.insert(name.to_string(), value.to_string());
+                    }
+                }
+                // Parse fish style: alias name 'command' or abbr -a name command
+                else if line.starts_with("alias ") || line.starts_with("abbr ") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 3 {
+                        let name = parts[1].trim_start_matches("-a").trim();
+                        let value = parts[2..].join(" ");
+                        let value = value.trim_matches('\'').trim_matches('"').to_string();
+                        if !name.is_empty() {
+                            aliases.insert(name.to_string(), value);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    aliases
+}
+
+/// Analyze CLI usage and suggest optimizations
+pub fn cmd_ai_analyze(db: &Database, json_output: bool, no_ai: bool, min_uses: i64) -> Result<()> {
+    use crate::ai::{
+        AnalysisResult, AnalyzeTip, MODERN_REPLACEMENTS, UnderutilizedTool, analyze_prompt,
+        invoke_ai, is_binary_installed, parse_analyze_response,
+    };
+    use crate::history::parse_all_histories;
+    use indicatif::{ProgressBar, ProgressStyle};
+
+    if !json_output {
+        println!("{}", "Usage Analysis".bold());
+        println!();
+    }
+
+    // 1. Parse ALL shell history to get raw command counts (including untracked tools)
+    let spinner = if !json_output {
+        let sp = ProgressBar::new_spinner();
+        sp.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        sp.set_message("Scanning shell history...");
+        sp.enable_steady_tick(std::time::Duration::from_millis(80));
+        Some(sp)
+    } else {
+        None
+    };
+
+    let raw_counts = parse_all_histories()?;
+
+    if let Some(ref sp) = spinner {
+        sp.finish_and_clear();
+    }
+
+    // 2. Detect shell aliases (to avoid false positives like "use bat" when alias cat='bat' exists)
+    let aliases = detect_shell_aliases();
+
+    // 3. Find optimization opportunities (traditional tool used + modern alternative installed)
+    let mut tips: Vec<AnalyzeTip> = Vec::new();
+    let mut traditional_usage: Vec<(String, i64)> = Vec::new();
+    let mut modern_installed: Vec<String> = Vec::new();
+
+    for replacement in MODERN_REPLACEMENTS {
+        let trad_uses = raw_counts
+            .get(replacement.traditional)
+            .copied()
+            .unwrap_or(0);
+        let modern_uses = raw_counts
+            .get(replacement.modern_binary)
+            .copied()
+            .unwrap_or(0);
+        let modern_available = is_binary_installed(replacement.modern_binary);
+
+        if modern_available {
+            modern_installed.push(replacement.modern.to_string());
+        }
+
+        // Skip if:
+        // - Traditional tool usage is below threshold
+        // - Modern tool is not installed
+        // - Modern tool is already being used directly (modern_uses >= 5)
+        // - There's an alias from traditional -> modern (e.g., alias cat='bat')
+        let has_alias = aliases
+            .get(replacement.traditional)
+            .is_some_and(|target: &String| target.contains(replacement.modern_binary));
+        let already_using_modern = modern_uses >= 5;
+
+        if trad_uses >= min_uses && modern_available && !already_using_modern && !has_alias {
+            traditional_usage.push((replacement.traditional.to_string(), trad_uses));
+            tips.push(AnalyzeTip {
+                traditional: replacement.traditional.to_string(),
+                traditional_uses: trad_uses,
+                modern: replacement.modern.to_string(),
+                modern_binary: replacement.modern_binary.to_string(),
+                benefit: replacement.benefit.to_string(),
+                action: replacement.tip.to_string(),
+            });
+        }
+    }
+
+    // Sort tips by usage count (most used first)
+    tips.sort_by(|a, b| b.traditional_uses.cmp(&a.traditional_uses));
+
+    // 3. Get unused installed tools (high-value ones)
+    let unused_tools = db.get_unused_tools()?;
+    let mut underutilized: Vec<UnderutilizedTool> = Vec::new();
+
+    for tool in unused_tools.iter().take(10) {
+        // Get GitHub stars if available (stars is i64, convert to Option<u64>)
+        let stars = db.get_github_info(&tool.name)?.map(|gh| gh.stars as u64);
+
+        underutilized.push(UnderutilizedTool {
+            name: tool.name.clone(),
+            description: tool.description.clone(),
+            stars,
+        });
+    }
+
+    // Sort by stars (most popular first) to highlight high-value unused tools
+    underutilized.sort_by(|a, b| b.stars.unwrap_or(0).cmp(&a.stars.unwrap_or(0)));
+    underutilized.truncate(5);
+
+    // 4. Optional AI insights
+    let ai_insight = if !no_ai && (!tips.is_empty() || !underutilized.is_empty()) {
+        if !json_output {
+            let sp = ProgressBar::new_spinner();
+            sp.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.cyan} {msg}")
+                    .unwrap(),
+            );
+            sp.set_message("Getting AI insights...");
+            sp.enable_steady_tick(std::time::Duration::from_millis(80));
+
+            let unused_names: Vec<String> = underutilized.iter().map(|t| t.name.clone()).collect();
+            let prompt = analyze_prompt(&traditional_usage, &modern_installed, &unused_names);
+
+            match invoke_ai(&prompt) {
+                Ok(response) => {
+                    sp.finish_and_clear();
+                    parse_analyze_response(&response).ok()
+                }
+                Err(_) => {
+                    sp.finish_and_clear();
+                    None
+                }
+            }
+        } else {
+            let unused_names: Vec<String> = underutilized.iter().map(|t| t.name.clone()).collect();
+            let prompt = analyze_prompt(&traditional_usage, &modern_installed, &unused_names);
+            invoke_ai(&prompt)
+                .ok()
+                .and_then(|r| parse_analyze_response(&r).ok())
+        }
+    } else {
+        None
+    };
+
+    // 5. Build result
+    let result = AnalysisResult {
+        tips,
+        underutilized,
+        ai_insight,
+    };
+
+    // 6. Output results
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
+
+    // Display tips
+    if result.tips.is_empty() {
+        println!("{} No optimization opportunities found", "+".green());
+        println!(
+            "  {} Either you're already using modern tools, or no traditional tools",
+            ">".dimmed()
+        );
+        println!(
+            "    {} met the minimum usage threshold ({}x)",
+            ">".dimmed(),
+            min_uses
+        );
+    } else {
+        println!("{}", "Optimization Tips:".green().bold());
+        println!();
+
+        for (i, tip) in result.tips.iter().enumerate() {
+            println!(
+                "{}. You use {} but have {} installed.",
+                i + 1,
+                format!("{} ({}x)", tip.traditional, tip.traditional_uses).yellow(),
+                tip.modern.cyan()
+            );
+            println!(
+                "   {} {}",
+                tip.benefit.dimmed(),
+                format!("Consider: {}", tip.action).green()
+            );
+            println!();
+        }
+    }
+
+    // Display underutilized tools
+    if !result.underutilized.is_empty() {
+        println!("{}", "High-value unused tools:".blue().bold());
+        for tool in &result.underutilized {
+            let stars = tool
+                .stars
+                .map(|s| format!(" ({})", format_stars(s)))
+                .unwrap_or_default();
+            let desc = tool.description.as_deref().unwrap_or("No description");
+            println!(
+                "   {} {}{} - {}",
+                "•".cyan(),
+                tool.name.cyan(),
+                stars.dimmed(),
+                desc.dimmed()
+            );
+        }
+        println!();
+    }
+
+    // Display AI insight if available
+    if let Some(insight) = &result.ai_insight {
+        println!("{}", "AI Insight:".magenta().bold());
+        println!("  {}", insight);
+        println!();
+    }
+
+    // Summary
+    let total_tips = result.tips.len();
+    let total_unused = result.underutilized.len();
+    if total_tips > 0 || total_unused > 0 {
+        println!(
+            "{} Found {} optimization tip{} and {} high-value unused tool{}",
+            ">".cyan(),
+            total_tips,
+            if total_tips == 1 { "" } else { "s" },
+            total_unused,
+            if total_unused == 1 { "" } else { "s" }
+        );
+    }
+
+    Ok(())
+}
+
+/// Migrate tools between package sources
+///
+/// Find tools that have newer versions on other package sources and offer to migrate them.
+pub fn cmd_ai_migrate(
+    db: &Database,
+    from: Option<String>,
+    to: Option<String>,
+    dry_run: bool,
+    json_output: bool,
+    no_ai: bool,
+) -> Result<()> {
+    use crate::ai::{
+        MigrationCandidate, MigrationResult, invoke_ai, migrate_prompt, parse_migrate_response,
+    };
+    use crate::updates::{get_installed_version, get_migration_candidates};
+    use dialoguer::{MultiSelect, Select, theme::ColorfulTheme};
+    use indicatif::{ProgressBar, ProgressStyle};
+    use std::time::Duration;
+
+    // 1. Gather installed tools with versions
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("Gathering tool versions...");
+    spinner.enable_steady_tick(Duration::from_millis(80));
+
+    // Get only installed tools
+    let tools = db.list_tools(true, None)?;
+    let mut tools_with_versions: Vec<(String, String, String)> = Vec::new();
+
+    for tool in &tools {
+        let source = tool.source.to_string().to_lowercase();
+        if let Some(version) = get_installed_version(&tool.name, &source) {
+            tools_with_versions.push((tool.name.clone(), version, source));
+        }
+    }
+
+    spinner.finish_and_clear();
+
+    if tools_with_versions.is_empty() {
+        println!("{} No tools with version information found.", "!".yellow());
+        return Ok(());
+    }
+
+    // 2. Find migration candidates
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("Checking for migration candidates...");
+    spinner.enable_steady_tick(Duration::from_millis(80));
+
+    let upgrades = get_migration_candidates(&tools_with_versions, from.as_deref(), to.as_deref());
+
+    spinner.finish_and_clear();
+
+    if upgrades.is_empty() {
+        println!("{} No migration candidates found.", "!".yellow());
+        if from.is_some() || to.is_some() {
+            println!("  Try without --from/--to filters to see all possibilities.");
+        }
+        return Ok(());
+    }
+
+    // 3. Build MigrationCandidate list
+    let mut candidates: Vec<MigrationCandidate> = upgrades
+        .iter()
+        .map(|u| MigrationCandidate {
+            name: u.name.clone(),
+            from_source: u.current_source.clone(),
+            from_version: u.current_version.clone(),
+            to_source: u.better_source.clone(),
+            to_version: u.better_version.clone(),
+            to_package_name: get_target_package_name(&u.name, &u.better_source),
+            benefit: None,
+        })
+        .collect();
+
+    // 4. Optional: Get AI benefits
+    let ai_summary: Option<String> = if !no_ai {
+        let config = HoardConfig::load()?;
+        if config.ai.provider != AiProvider::None && config.ai.provider.is_installed() {
+            let spinner = ProgressBar::new_spinner();
+            spinner.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.cyan} {msg}")
+                    .unwrap(),
+            );
+            spinner.set_message("Getting AI insights...");
+            spinner.enable_steady_tick(Duration::from_millis(80));
+
+            let tools_for_prompt: Vec<(String, String, String, String, String)> = candidates
+                .iter()
+                .map(|c| {
+                    (
+                        c.name.clone(),
+                        c.from_source.clone(),
+                        c.from_version.clone(),
+                        c.to_source.clone(),
+                        c.to_version.clone(),
+                    )
+                })
+                .collect();
+
+            let prompt = migrate_prompt(&tools_for_prompt);
+            match invoke_ai(&prompt) {
+                Ok(response) => {
+                    spinner.finish_and_clear();
+                    if let Ok(benefits) = parse_migrate_response(&response) {
+                        // Apply benefits to candidates
+                        for candidate in &mut candidates {
+                            if let Some(benefit) = benefits.get(&candidate.name) {
+                                candidate.benefit = Some(benefit.clone());
+                            }
+                        }
+                    }
+                    Some("AI-generated benefits included".to_string())
+                }
+                Err(_) => {
+                    spinner.finish_and_clear();
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // 5. Build result
+    let result = MigrationResult {
+        candidates: candidates.clone(),
+        ai_summary,
+    };
+
+    // 6. Output
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
+
+    // Display formatted output
+    display_migration_table(&result);
+
+    if dry_run {
+        println!();
+        println!("{} Dry run - no changes made", "!".yellow());
+        print_migration_commands(&result);
+        return Ok(());
+    }
+
+    // 7. Interactive selection (only in TTY)
+    if !std::io::stdout().is_terminal() {
+        print_migration_commands(&result);
+        return Ok(());
+    }
+
+    if result.candidates.is_empty() {
+        return Ok(());
+    }
+
+    // Prompt for action
+    let options = vec![
+        "[m] Migrate all tools".to_string(),
+        "[s] Select tools to migrate".to_string(),
+        "[c] Cancel".to_string(),
+    ];
+
+    let selection = Select::new()
+        .with_prompt("Action")
+        .items(&options)
+        .default(2)
+        .interact()?;
+
+    match selection {
+        0 => execute_migration(db, &result.candidates)?,
+        1 => {
+            let labels: Vec<String> = result
+                .candidates
+                .iter()
+                .map(|c| {
+                    format!(
+                        "{} ({} {} → {} {})",
+                        c.name, c.from_source, c.from_version, c.to_source, c.to_version
+                    )
+                })
+                .collect();
+
+            let selected = MultiSelect::with_theme(&ColorfulTheme::default())
+                .with_prompt("Select tools to migrate")
+                .items(&labels)
+                .interact_opt()?;
+
+            if let Some(indices) = selected {
+                if indices.is_empty() {
+                    println!("No tools selected.");
+                } else {
+                    let selected_candidates: Vec<MigrationCandidate> = indices
+                        .iter()
+                        .map(|&i| result.candidates[i].clone())
+                        .collect();
+                    execute_migration(db, &selected_candidates)?;
+                }
+            }
+        }
+        _ => println!("Migration cancelled."),
+    }
+
+    Ok(())
+}
+
+/// Get the package name for a tool on the target source
+/// (may differ from the tool name, e.g., "fd" installs as "fd-find" on cargo)
+fn get_target_package_name(tool_name: &str, target_source: &str) -> String {
+    match target_source {
+        "cargo" => match tool_name {
+            "fd" | "fd-find" => "fd-find".to_string(),
+            "dust" => "du-dust".to_string(),
+            "delta" | "git-delta" => "git-delta".to_string(),
+            "tldr" | "tealdeer" => "tealdeer".to_string(),
+            _ => tool_name.to_string(),
+        },
+        "pip" => match tool_name {
+            "yt-dlp" => "yt-dlp".to_string(),
+            _ => tool_name.to_string(),
+        },
+        _ => tool_name.to_string(),
+    }
+}
+
+/// Display migration candidates in a table
+fn display_migration_table(result: &crate::ai::MigrationResult) {
+    use comfy_table::{Table, presets::UTF8_BORDERS_ONLY};
+
+    println!();
+    println!("🔄 Migration Analysis");
+    println!();
+
+    if result.candidates.is_empty() {
+        println!("  No migration candidates found.");
+        return;
+    }
+
+    let mut table = Table::new();
+    table.load_preset(UTF8_BORDERS_ONLY);
+    table.set_header(vec!["Tool", "From", "Version", "To", "Version", "Benefit"]);
+
+    for c in &result.candidates {
+        table.add_row(vec![
+            &c.name,
+            &c.from_source,
+            &c.from_version,
+            &c.to_source,
+            &c.to_version,
+            c.benefit.as_deref().unwrap_or("-"),
+        ]);
+    }
+
+    println!("{}", table);
+    println!();
+    println!(
+        "{} {} tool{} can be migrated to newer versions",
+        ">".cyan(),
+        result.candidates.len(),
+        if result.candidates.len() == 1 {
+            ""
+        } else {
+            "s"
+        }
+    );
+}
+
+/// Print migration commands for non-interactive use
+fn print_migration_commands(result: &crate::ai::MigrationResult) {
+    if result.candidates.is_empty() {
+        return;
+    }
+
+    // Group by source pair
+    let mut by_source: std::collections::HashMap<
+        (String, String),
+        Vec<&crate::ai::MigrationCandidate>,
+    > = std::collections::HashMap::new();
+
+    for c in &result.candidates {
+        by_source
+            .entry((c.from_source.clone(), c.to_source.clone()))
+            .or_default()
+            .push(c);
+    }
+
+    println!();
+    println!("{}", "Migration commands:".bold());
+    println!();
+
+    for ((from, to), tools) in &by_source {
+        let package_names: Vec<&str> = tools.iter().map(|t| t.to_package_name.as_str()).collect();
+
+        // Install command
+        let install_cmd = match to.as_str() {
+            "cargo" => format!("cargo install {}", package_names.join(" ")),
+            "pip" => format!("pip install {}", package_names.join(" ")),
+            "npm" => format!("npm install -g {}", package_names.join(" ")),
+            _ => format!("# Install from {}: {}", to, package_names.join(" ")),
+        };
+
+        // Uninstall command
+        let tool_names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+        let uninstall_cmd = match from.as_str() {
+            "apt" => format!("sudo apt remove {}", tool_names.join(" ")),
+            "snap" => format!("sudo snap remove {}", tool_names.join(" ")),
+            "cargo" => format!("cargo uninstall {}", tool_names.join(" ")),
+            "pip" => format!("pip uninstall -y {}", tool_names.join(" ")),
+            "npm" => format!("npm uninstall -g {}", tool_names.join(" ")),
+            _ => format!("# Uninstall from {}: {}", from, tool_names.join(" ")),
+        };
+
+        println!("  {} {} → {}:", ">".cyan(), from, to);
+        println!("    1. {}", install_cmd.green());
+        println!("    2. {}", uninstall_cmd.yellow());
+        println!();
+    }
+}
+
+/// Execute migration for selected candidates
+fn execute_migration(db: &Database, candidates: &[crate::ai::MigrationCandidate]) -> Result<()> {
+    use crate::commands::install::handle_running_process;
+    use indicatif::{ProgressBar, ProgressStyle};
+    use std::time::Duration;
+
+    for candidate in candidates {
+        println!();
+        println!(
+            "{} Migrating {} ({} → {})",
+            ">".cyan(),
+            candidate.name.bold(),
+            candidate.from_source,
+            candidate.to_source
+        );
+
+        // Check if process is running (get binary name from DB if available)
+        let binary_name = db
+            .get_tool_by_name(&candidate.name)
+            .ok()
+            .flatten()
+            .and_then(|t| t.binary_name)
+            .unwrap_or_else(|| candidate.name.clone());
+
+        if !handle_running_process(&binary_name)? {
+            println!(
+                "  {} Migration cancelled for {}",
+                "!".yellow(),
+                candidate.name
+            );
+            continue;
+        }
+
+        // 1. Install from new source using SafeCommand
+        let safe_install_cmd = match get_safe_install_command(
+            &candidate.to_package_name,
+            &candidate.to_source,
+            None,
+        ) {
+            Ok(Some(cmd)) => cmd,
+            Ok(None) => {
+                println!(
+                    "  {} Cannot auto-install from {}",
+                    "!".yellow(),
+                    candidate.to_source
+                );
+                continue;
+            }
+            Err(e) => {
+                println!("  {} Invalid package name: {}", "!".red(), e);
+                continue;
+            }
+        };
+
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        spinner.set_message(format!("Installing from {}...", candidate.to_source));
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
+        let install_result = safe_install_cmd.execute();
+
+        spinner.finish_and_clear();
+
+        match install_result {
+            Ok(status) if status.success() => {
+                println!("  {} Installed from {}", "+".green(), candidate.to_source);
+            }
+            Ok(_status) => {
+                println!(
+                    "  {} Failed to install from {}",
+                    "!".red(),
+                    candidate.to_source
+                );
+                continue;
+            }
+            Err(e) => {
+                println!("  {} Install failed: {}", "!".red(), e);
+                continue;
+            }
+        }
+
+        // 2. Uninstall from old source using SafeCommand
+        let safe_uninstall_cmd =
+            match get_safe_uninstall_command(&candidate.name, &candidate.from_source) {
+                Ok(Some(cmd)) => cmd,
+                Ok(None) => {
+                    println!(
+                        "  {} Skipping uninstall from {} (manual removal needed)",
+                        "!".yellow(),
+                        candidate.from_source
+                    );
+                    continue;
+                }
+                Err(e) => {
+                    println!("  {} Invalid package name: {}", "!".red(), e);
+                    continue;
+                }
+            };
+
+        // Check if this is a sudo command (apt, snap)
+        let needs_sudo = safe_uninstall_cmd.program == "sudo";
+
+        // For sudo commands, we need to inherit stdio so the user can enter password
+        let uninstall_success = if needs_sudo {
+            println!(
+                "  {} Removing from {} (may prompt for password)...",
+                ">".cyan(),
+                candidate.from_source
+            );
+            match Command::new(safe_uninstall_cmd.program)
+                .args(&safe_uninstall_cmd.args)
+                .stdin(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .stderr(std::process::Stdio::inherit())
+                .status()
+            {
+                Ok(status) => status.success(),
+                Err(e) => {
+                    println!("  {} Uninstall warning: {}", "!".yellow(), e);
+                    false
+                }
+            }
+        } else {
+            let spinner = ProgressBar::new_spinner();
+            spinner.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.cyan} {msg}")
+                    .unwrap(),
+            );
+            spinner.set_message(format!("Removing from {}...", candidate.from_source));
+            spinner.enable_steady_tick(Duration::from_millis(80));
+
+            let result = safe_uninstall_cmd.execute();
+
+            spinner.finish_and_clear();
+
+            match result {
+                Ok(status) => status.success(),
+                Err(e) => {
+                    println!("  {} Uninstall warning: {}", "!".yellow(), e);
+                    false
+                }
+            }
+        };
+
+        if uninstall_success {
+            println!("  {} Removed from {}", "+".green(), candidate.from_source);
+        } else {
+            println!(
+                "  {} Could not remove from {} (may need manual cleanup)",
+                "!".yellow(),
+                candidate.from_source
+            );
+        }
+
+        // 3. Update database
+        if let Err(e) = db.update_tool_source(&candidate.name, &candidate.to_source) {
+            println!("  {} Could not update database: {}", "!".yellow(), e);
+        } else {
+            println!("  {} Database updated", "+".green());
+        }
+
+        println!("  {} Migrated {} successfully", "✓".green(), candidate.name);
+    }
+
+    Ok(())
+}
+
+// ==================== Safe Command Parsing ====================
+
+/// Parse an install command string into a SafeCommand
+/// Returns None if the command cannot be safely parsed
+fn parse_install_cmd_to_safe_command(cmd: &str) -> Option<SafeCommand> {
+    let parts: Vec<&str> = cmd.split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    // Validate that we're dealing with a known package manager
+    match parts.as_slice() {
+        // cargo install <package>
+        ["cargo", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "cargo",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // pip install <package>
+        ["pip", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        ["pip3", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip3",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // pip install --upgrade <package>
+        ["pip", "install", "--upgrade", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip",
+                args: vec!["install".into(), "--upgrade".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        ["pip3", "install", "--upgrade", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "pip3",
+                args: vec!["install".into(), "--upgrade".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // npm install -g <package>
+        ["npm", "install", "-g", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "npm",
+                args: vec!["install".into(), "-g".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // brew install <package>
+        ["brew", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "brew",
+                args: vec!["install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // sudo apt install -y <package>
+        ["sudo", "apt", "install", "-y", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "sudo",
+                args: vec![
+                    "apt".into(),
+                    "install".into(),
+                    "-y".into(),
+                    (*package).into(),
+                ],
+                display: cmd.into(),
+            })
+        }
+        // sudo snap install <package>
+        ["sudo", "snap", "install", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "sudo",
+                args: vec!["snap".into(), "install".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // flatpak install -y <package>
+        ["flatpak", "install", "-y", package] => {
+            validate_package_name(package).ok()?;
+            Some(SafeCommand {
+                program: "flatpak",
+                args: vec!["install".into(), "-y".into(), (*package).into()],
+                display: cmd.into(),
+            })
+        }
+        // Unrecognized command pattern
+        _ => None,
+    }
 }

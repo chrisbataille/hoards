@@ -643,6 +643,48 @@ Example output:
 └──────────────────────────────────────────────┘
 ```
 
+### Contextual Discovery
+
+Find tools based on what you're working on:
+
+```bash
+# Describe what you need
+hoards ai discover "kubernetes development"
+hoards ai discover "data science and machine learning"
+hoards ai discover "rust CLI tools"
+
+# Limit number of results
+hoards ai discover "web scraping" --limit 5
+
+# Skip GitHub stars lookup (faster)
+hoards ai discover "image processing" --no-stars
+
+# Show recommendations without installation prompt
+hoards ai discover "database tools" --dry-run
+```
+
+The AI analyzes your installed tools and suggests complementary tools. Results include:
+- Tool name and description
+- Why it's useful for your workflow
+- GitHub stars (for popularity reference)
+- Installation source and command
+
+**Interactive Installation**: After showing recommendations, you can select which tools to install directly from the results.
+
+### Bundle Cheatsheets
+
+Generate workflow-oriented guides for tool bundles:
+
+```bash
+# Generate a cheatsheet for an entire bundle
+hoards ai bundle-cheatsheet modern-unix
+
+# Regenerate if tools changed
+hoards ai bundle-cheatsheet dev-tools --refresh
+```
+
+Bundle cheatsheets show how tools work together rather than just listing individual commands.
+
 ---
 
 ## Config Management

@@ -38,8 +38,9 @@ ureq = { version = "3", features = ["json"] }
 
 # Interactive prompts
 dialoguer = "0.11"
-atty = "0.2.14"
 comfy-table = "7.2.2"
+indicatif = "0.18.3"
+terminal_size = "0.4.3"
 
 # TUI (for later)
 # ratatui = "0.29"

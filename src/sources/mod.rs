@@ -21,7 +21,6 @@ pub use pip::PipSource;
 
 use crate::models::{InstallSource, Tool};
 use anyhow::Result;
-use std::time::Duration;
 
 /// Trait for package managers/sources
 ///
@@ -59,14 +58,6 @@ pub trait PackageSource: Send + Sync {
     fn check_update(&self, _package: &str, _current_version: &str) -> Option<String> {
         None
     }
-}
-
-/// Create a shared HTTP agent with timeout for API requests
-pub(crate) fn http_agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(5)))
-        .build()
-        .new_agent()
 }
 
 /// Get all available package sources

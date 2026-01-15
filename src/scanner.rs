@@ -1,22 +1,14 @@
 use anyhow::Result;
 use std::process::Command;
-use std::time::Duration;
 
+use crate::http::HTTP_AGENT;
 use crate::models::{InstallSource, Tool};
-
-/// Create a shared HTTP agent with timeout
-fn http_agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(5)))
-        .build()
-        .new_agent()
-}
 
 /// Fetch package description from PyPI API
 /// Returns None if the request fails or description is not available
 pub fn fetch_pypi_description(package: &str) -> Option<String> {
     let url = format!("https://pypi.org/pypi/{}/json", package);
-    let mut response = http_agent().get(&url).call().ok()?;
+    let mut response = HTTP_AGENT.get(&url).call().ok()?;
     let json: serde_json::Value = response.body_mut().read_json().ok()?;
 
     let summary = json.get("info")?.get("summary")?.as_str()?;
@@ -32,7 +24,7 @@ pub fn fetch_pypi_description(package: &str) -> Option<String> {
 /// Returns None if the request fails or description is not available
 pub fn fetch_npm_description(package: &str) -> Option<String> {
     let url = format!("https://registry.npmjs.org/{}", package);
-    let mut response = http_agent().get(&url).call().ok()?;
+    let mut response = HTTP_AGENT.get(&url).call().ok()?;
     let json: serde_json::Value = response.body_mut().read_json().ok()?;
 
     json.get("description")?
@@ -45,7 +37,7 @@ pub fn fetch_npm_description(package: &str) -> Option<String> {
 /// Returns None if the request fails or description is not available
 pub fn fetch_crates_io_description(crate_name: &str) -> Option<String> {
     let url = format!("https://crates.io/api/v1/crates/{}", crate_name);
-    let mut response = http_agent().get(&url).call().ok()?;
+    let mut response = HTTP_AGENT.get(&url).call().ok()?;
     let json: serde_json::Value = response.body_mut().read_json().ok()?;
 
     json.get("crate")?
@@ -59,7 +51,7 @@ pub fn fetch_crates_io_description(crate_name: &str) -> Option<String> {
 /// Returns None if the request fails or description is not available
 pub fn fetch_brew_description(formula: &str) -> Option<String> {
     let url = format!("https://formulae.brew.sh/api/formula/{}.json", formula);
-    let mut response = http_agent().get(&url).call().ok()?;
+    let mut response = HTTP_AGENT.get(&url).call().ok()?;
     let json: serde_json::Value = response.body_mut().read_json().ok()?;
 
     json.get("desc")?

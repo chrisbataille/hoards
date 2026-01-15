@@ -18,7 +18,7 @@ Transform hoard from a CLI tool tracker into the **AI-powered developer tool man
 | Phase | Focus | Duration | Status |
 |-------|-------|----------|--------|
 | 1 | CLI Simplification | 2-3 weeks | ✅ Complete |
-| 2 | AI Enhancements | 2-3 weeks | 🔄 In Progress (2.1, 2.2, 2.4 done) |
+| 2 | AI Enhancements | 2-3 weeks | ✅ Complete |
 | 3 | TUI MVP | 4-6 weeks | 🔲 Not Started |
 | 4 | TUI Polish | 2-3 weeks | 🔲 Not Started |
 
@@ -354,11 +354,11 @@ hoard ai discover "I'm setting up a Kubernetes development environment"
 ```
 
 **Tasks:**
-- [ ] Create discovery prompt template
-- [ ] Implement natural language query handling
-- [ ] Query GitHub for tool popularity
-- [ ] Present categorized suggestions
-- [ ] Allow batch installation
+- [x] Create discovery prompt template
+- [x] Implement natural language query handling
+- [x] Query GitHub for tool popularity
+- [x] Present categorized suggestions
+- [x] Allow batch installation
 
 ---
 
@@ -397,67 +397,56 @@ hoard ai cheatsheet ripgrep
 
 ---
 
-### 2.5 Usage Analysis & Tips
+### 2.5 Usage Analysis & Tips ✅
+
+**Status:** COMPLETED
 
 ```bash
-hoard ai analyze
-
-# Output:
-# 📊 Usage Analysis
-#
-# 💡 Optimization Tips:
-#
-# 1. You use `grep` (234x) but have `ripgrep` installed.
-#    ripgrep is 10x faster. Consider: alias grep='rg'
-#
-# 2. You use `find` (89x) but have `fd` installed.
-#    fd is simpler and faster. Try: fd <pattern>
-#
-# 3. You use `cat` (567x) but have `bat` installed.
-#    bat adds syntax highlighting. Consider: alias cat='bat'
-#
-# 4. High-value unused tools:
-#    • zoxide (0 uses) - smarter cd, learns your habits
-#    • delta (0 uses) - better git diffs
+hoards ai analyze              # Full analysis with AI insights
+hoards ai analyze --no-ai      # Static rules only (fast)
+hoards ai analyze --json       # JSON output for scripts
+hoards ai analyze --min-uses 5 # Lower threshold
 ```
 
+**Features:**
+- Detects when traditional Unix tools (grep, find, cat, etc.) are used but modern alternatives are installed
+- Identifies high-value unused tools sorted by GitHub stars
+- Optional AI-generated personalized insights
+- JSON output for scripting
+
 **Tasks:**
-- [ ] Analyze usage patterns for inefficiencies
-- [ ] Detect traditional vs modern tool usage
-- [ ] Generate actionable recommendations
-- [ ] Identify underutilized installed tools
+- [x] Analyze usage patterns for inefficiencies
+- [x] Detect traditional vs modern tool usage
+- [x] Generate actionable recommendations
+- [x] Identify underutilized installed tools
 
 ---
 
-### 2.6 Migration Assistant
+### 2.6 Migration Assistant ✅
+
+**Status:** COMPLETED
 
 ```bash
-hoard ai migrate --from apt --to cargo
-
-# Output:
-# 🔄 Migration Analysis: apt → cargo
-#
-# These tools have newer versions on cargo:
-#
-# Tool      apt ver    cargo ver   Benefit
-# ────────────────────────────────────────
-# bat       0.22.1     0.24.0      +themes, +paging
-# fd        8.7.0      10.1.0      +2x speed
-# ripgrep   13.0.0     14.1.0      +PCRE2
-#
-# Migration plan:
-#   1. cargo install bat fd-find ripgrep
-#   2. sudo apt remove bat fd-find ripgrep
-#   3. Update database sources
-#
-# [m]igrate all  [s]elect  [c]ancel
+hoards ai migrate                    # Auto-detect best migrations
+hoards ai migrate --from apt         # Migrate from apt only
+hoards ai migrate --from apt --to cargo  # Explicit source pair
+hoards ai migrate --dry-run          # Preview without executing
+hoards ai migrate --json             # JSON output for scripts
+hoards ai migrate --no-ai            # Skip AI benefit descriptions
 ```
 
+**Features:**
+- Finds tools that have newer versions on other package sources
+- Optional AI-generated benefit descriptions for each migration
+- Interactive selection (migrate all / select / cancel)
+- Safe execution: install new before removing old
+- Database updated after successful migration
+
 **Tasks:**
-- [ ] Compare versions across sources
-- [ ] Identify migration candidates
-- [ ] Generate migration plan
-- [ ] Execute migration with rollback capability
+- [x] Compare versions across sources
+- [x] Identify migration candidates
+- [x] Generate migration plan
+- [x] Execute migration with database update
 
 ---
 
@@ -674,6 +663,7 @@ src/tui/
 - [ ] Cheatsheets generated in <2 seconds
 - [x] Real-time usage tracking via shell hooks
 - [x] Auto-install shell completions (Fish, Bash, Zsh) during `hoards init`
+- [x] Usage analysis detects traditional vs modern tool usage
 
 ### Phase 3
 - [ ] TUI launches in <100ms

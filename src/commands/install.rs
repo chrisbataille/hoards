@@ -37,6 +37,160 @@ impl std::fmt::Display for SafeCommand {
     }
 }
 
+// ==================== Process Detection ====================
+
+/// Action to take when a process is running
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessAction {
+    /// Kill the process and continue
+    Kill,
+    /// Cancel the operation
+    Cancel,
+    /// Retry (user will close manually)
+    Retry,
+}
+
+/// Check if a binary is currently running
+pub fn is_process_running(binary_name: &str) -> bool {
+    // Validate binary name to prevent injection
+    if validate_binary_name(binary_name).is_err() {
+        return false;
+    }
+    // Use pgrep to check if process is running
+    Command::new("pgrep")
+        .arg("-x")
+        .arg(binary_name)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+/// Get PIDs of running processes matching the binary name
+pub fn get_running_pids(binary_name: &str) -> Vec<u32> {
+    // Validate binary name to prevent injection
+    if validate_binary_name(binary_name).is_err() {
+        return Vec::new();
+    }
+    Command::new("pgrep")
+        .arg("-x")
+        .arg(binary_name)
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                Some(
+                    stdout
+                        .lines()
+                        .filter_map(|line| line.trim().parse().ok())
+                        .collect(),
+                )
+            } else {
+                None
+            }
+        })
+        .unwrap_or_default()
+}
+
+/// Kill processes by PIDs
+pub fn kill_processes(pids: &[u32]) -> bool {
+    if pids.is_empty() {
+        return true;
+    }
+
+    let pid_args: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
+
+    // Try SIGTERM first
+    let result = Command::new("kill")
+        .args(&pid_args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if result {
+        // Give processes time to terminate
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+
+    result
+}
+
+/// Check if a tool is running and prompt user for action
+/// Returns None if not running, Some(action) if running
+pub fn check_running_process(binary_name: &str) -> Option<ProcessAction> {
+    use dialoguer::Select;
+
+    let pids = get_running_pids(binary_name);
+    if pids.is_empty() {
+        return None;
+    }
+
+    println!(
+        "\n{} '{}' is currently running (PID: {})",
+        "!".yellow(),
+        binary_name,
+        pids.iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let options = vec![
+        "[k] Kill process(es) and continue",
+        "[r] Retry (I'll close it manually)",
+        "[c] Cancel operation",
+    ];
+
+    let selection = Select::new()
+        .with_prompt("What would you like to do?")
+        .items(&options)
+        .default(1) // Default to retry
+        .interact()
+        .ok()?;
+
+    Some(match selection {
+        0 => ProcessAction::Kill,
+        1 => ProcessAction::Retry,
+        _ => ProcessAction::Cancel,
+    })
+}
+
+/// Handle a running process before uninstall/upgrade
+/// Returns true if we should proceed, false if cancelled
+pub fn handle_running_process(binary_name: &str) -> Result<bool> {
+    loop {
+        match check_running_process(binary_name) {
+            None => return Ok(true), // Not running, proceed
+            Some(ProcessAction::Kill) => {
+                let pids = get_running_pids(binary_name);
+                if kill_processes(&pids) {
+                    // Verify it's actually stopped
+                    if !is_process_running(binary_name) {
+                        println!("  {} Process terminated", "+".green());
+                        return Ok(true);
+                    } else {
+                        println!(
+                            "  {} Process still running, may need sudo to kill",
+                            "!".yellow()
+                        );
+                    }
+                } else {
+                    println!("  {} Failed to kill process", "!".red());
+                }
+            }
+            Some(ProcessAction::Retry) => {
+                println!("  {} Press Enter when ready to retry...", ">".cyan());
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                // Loop will check again
+            }
+            Some(ProcessAction::Cancel) => {
+                return Ok(false);
+            }
+        }
+    }
+}
+
 // ==================== Input Validation ====================
 
 /// Validate a package name to prevent command injection
@@ -63,6 +217,33 @@ pub fn validate_package_name(name: &str) -> Result<()> {
     // Prevent path traversal
     if name.contains("..") {
         anyhow::bail!("Package name cannot contain '..'");
+    }
+    Ok(())
+}
+
+/// Validate a binary name to prevent command injection in process detection
+/// More restrictive than package names - no @ or / allowed
+pub fn validate_binary_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        anyhow::bail!("Binary name cannot be empty");
+    }
+    if name.len() > 100 {
+        anyhow::bail!("Binary name too long (max 100 characters)");
+    }
+    // Binary names: alphanumeric, dash, underscore, dot only
+    let valid = name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.');
+    if !valid {
+        anyhow::bail!(
+            "Binary name '{}' contains invalid characters. \
+             Only alphanumeric, dash, underscore, and dot are allowed.",
+            name
+        );
+    }
+    // Prevent path traversal
+    if name.contains("..") {
+        anyhow::bail!("Binary name cannot contain '..'");
     }
     Ok(())
 }
@@ -506,6 +687,14 @@ pub fn cmd_upgrade(
     }
 
     println!();
+
+    // Check if process is running before upgrade
+    let binary_name = tool.binary_name.as_deref().unwrap_or(name);
+
+    if !handle_running_process(binary_name)? {
+        println!("Upgrade cancelled.");
+        return Ok(());
+    }
 
     // Execute uninstall if cross-source (safe: no shell interpolation)
     if let Some(uninstall) = uninstall_cmd {
