@@ -1074,6 +1074,7 @@ pub fn cmd_ai_discover(
     use crate::ai::{ToolRecommendation, discovery_prompt, invoke_ai, parse_discovery_response};
     use crate::scanner::is_installed;
     use dialoguer::{MultiSelect, theme::ColorfulTheme};
+    use indicatif::{ProgressBar, ProgressStyle};
 
     println!("{} Discovering tools for: {}", ">".cyan(), query.bold());
 
@@ -1091,9 +1092,20 @@ pub fn cmd_ai_discover(
         installed_tools.len()
     );
 
-    // Generate prompt and call AI
+    // Generate prompt and call AI with spinner
     let prompt = discovery_prompt(query, &installed_tools);
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message("Asking AI for recommendations...");
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
     let response = invoke_ai(&prompt)?;
+    spinner.finish_and_clear();
 
     // Parse response
     let mut discovery = parse_discovery_response(&response)?;
@@ -1104,15 +1116,33 @@ pub fn cmd_ai_discover(
     }
 
     // Check installation status and optionally fetch GitHub stars
-    for tool in &mut discovery.tools {
-        let binary = tool.binary.as_deref().unwrap_or(&tool.name);
-        tool.installed = is_installed(binary);
+    if !no_stars && discovery.tools.iter().any(|t| t.github.is_some()) {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap(),
+        );
+        spinner.enable_steady_tick(std::time::Duration::from_millis(80));
 
-        if !no_stars
-            && let Some(ref github) = tool.github
-            && let Ok(stars) = fetch_github_stars(github)
-        {
-            tool.stars = Some(stars);
+        let total = discovery.tools.len();
+        for (i, tool) in discovery.tools.iter_mut().enumerate() {
+            let binary = tool.binary.as_deref().unwrap_or(&tool.name);
+            tool.installed = is_installed(binary);
+
+            if let Some(ref github) = tool.github {
+                spinner.set_message(format!("Fetching GitHub stars ({}/{})...", i + 1, total));
+                if let Ok(stars) = fetch_github_stars(github) {
+                    tool.stars = Some(stars);
+                }
+            }
+        }
+        spinner.finish_and_clear();
+    } else {
+        // Just check installation status
+        for tool in &mut discovery.tools {
+            let binary = tool.binary.as_deref().unwrap_or(&tool.name);
+            tool.installed = is_installed(binary);
         }
     }
 
@@ -1232,6 +1262,7 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
     use crate::commands::install::get_safe_install_command;
     use crate::db::CachedExtraction;
     use crate::models::{InstallSource, Tool};
+    use indicatif::{ProgressBar, ProgressStyle};
 
     println!("{} Installing {}...", ">".cyan(), tool.name.bold());
 
@@ -1254,13 +1285,23 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
                         category: cached.category,
                     })
                 } else {
-                    // Try to extract from README
-                    println!("  {} Extracting info from GitHub...", ">".dimmed());
+                    // Try to extract from README with spinner
+                    let spinner = ProgressBar::new_spinner();
+                    spinner.set_style(
+                        ProgressStyle::default_spinner()
+                            .template("  {spinner:.cyan} {msg}")
+                            .unwrap(),
+                    );
+                    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+                    spinner.set_message("Fetching README from GitHub...");
+
                     match fetch_readme(&owner, &repo) {
                         Ok(readme) => {
+                            spinner.set_message("Extracting tool info with AI...");
                             let prompt = extract_prompt(&readme);
                             match invoke_ai(&prompt).and_then(|r| parse_extract_response(&r)) {
                                 Ok(ext) => {
+                                    spinner.finish_and_clear();
                                     // Cache it
                                     let cached = CachedExtraction {
                                         repo_owner: owner.clone(),
@@ -1275,16 +1316,18 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
                                         extracted_at: chrono::Utc::now().to_rfc3339(),
                                     };
                                     let _ = db.cache_extraction(&cached);
-                                    println!("  {} Extracted successfully", "+".green());
+                                    println!("  {} Extracted install info", "+".green());
                                     Some(ext)
                                 }
                                 Err(e) => {
+                                    spinner.finish_and_clear();
                                     println!("  {} Extraction failed: {}", "!".yellow(), e);
                                     None
                                 }
                             }
                         }
                         Err(e) => {
+                            spinner.finish_and_clear();
                             println!("  {} Could not fetch README: {}", "!".yellow(), e);
                             None
                         }
@@ -1321,21 +1364,31 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
 
     // Try to use safe install command if we have a known source
     let final_cmd = if let Some(safe_cmd) = get_safe_install_command(&name, &source, None)? {
-        println!("  {} Using safe install: {}", ">".dimmed(), safe_cmd);
+        println!("  {} Using: {}", ">".dimmed(), safe_cmd);
         Some(safe_cmd)
     } else if let Some(ref cmd) = install_cmd {
-        println!("  {} Using suggested command: {}", ">".dimmed(), cmd);
+        println!("  {} Using: {}", ">".dimmed(), cmd);
         None // Will use shell command
     } else {
         println!("  {} No install command available", "!".red());
         return Ok(());
     };
 
-    // Execute installation
+    // Execute installation with spinner
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .template("  {spinner:.cyan} {msg}")
+            .unwrap(),
+    );
+    spinner.set_message(format!("Installing {}...", name));
+    spinner.enable_steady_tick(std::time::Duration::from_millis(80));
+
     let success = if let Some(safe_cmd) = final_cmd {
         match safe_cmd.execute() {
             Ok(status) => status.success(),
             Err(e) => {
+                spinner.finish_and_clear();
                 println!("  {} Install error: {}", "!".red(), e);
                 false
             }
@@ -1345,6 +1398,7 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
         match std::process::Command::new("sh").arg("-c").arg(cmd).status() {
             Ok(status) => status.success(),
             Err(e) => {
+                spinner.finish_and_clear();
                 println!("  {} Install error: {}", "!".red(), e);
                 false
             }
@@ -1353,8 +1407,10 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
         false
     };
 
+    spinner.finish_and_clear();
+
     if success {
-        println!("{} Installed {}", "+".green(), name);
+        println!("  {} Installed {}", "+".green(), name);
 
         // Add to database with full metadata
         if db.get_tool_by_name(&name)?.is_none() {
@@ -1372,7 +1428,7 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
             }
 
             db.insert_tool(&new_tool)?;
-            println!("  {} Added to database with full metadata", "+".green());
+            println!("  {} Added to database", "+".green());
         } else {
             db.set_tool_installed(&name, true)?;
         }
@@ -1380,7 +1436,7 @@ fn install_discovered_tool(db: &Database, tool: &crate::ai::ToolRecommendation) 
         // Invalidate any cached cheatsheet
         let _ = invalidate_cheatsheet_cache(db, &name);
     } else {
-        println!("{} Failed to install {}", "!".red(), name);
+        println!("  {} Failed to install {}", "!".red(), name);
     }
 
     Ok(())
