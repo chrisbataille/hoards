@@ -322,6 +322,9 @@ pub fn cmd_install(
         version_msg
     );
 
+    // Invalidate cheatsheet cache (will be regenerated with new version)
+    let _ = crate::commands::ai::invalidate_cheatsheet_cache(db, name);
+
     // Add to database if not already there
     if db.get_tool_by_name(name)?.is_none() {
         let tool = Tool::new(name)
@@ -535,6 +538,9 @@ pub fn cmd_upgrade(
         name,
         version_msg
     );
+
+    // Invalidate cheatsheet cache (will be regenerated with new version)
+    let _ = crate::commands::ai::invalidate_cheatsheet_cache(db, name);
 
     // Update database if source changed
     if target_source != current_source {

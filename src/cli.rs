@@ -585,6 +585,23 @@ pub enum AiCommands {
         delay: u64,
     },
 
+    /// Generate a quick reference cheatsheet for a tool
+    ///
+    /// Uses AI to analyze the tool's --help output and create a concise,
+    /// categorized cheatsheet of the most useful commands.
+    Cheatsheet {
+        /// Tool name (must be installed, omit if using --bundle)
+        tool: Option<String>,
+
+        /// Generate combined cheatsheet for all tools in a bundle
+        #[arg(short, long, conflicts_with = "tool")]
+        bundle: Option<String>,
+
+        /// Refresh cached cheatsheet
+        #[arg(short, long)]
+        refresh: bool,
+    },
+
     // Hidden aliases for backward compatibility
     /// Set the AI provider (use 'ai config set' instead)
     #[command(hide = true)]

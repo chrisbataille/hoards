@@ -18,7 +18,7 @@ Transform hoard from a CLI tool tracker into the **AI-powered developer tool man
 | Phase | Focus | Duration | Status |
 |-------|-------|----------|--------|
 | 1 | CLI Simplification | 2-3 weeks | ✅ Complete |
-| 2 | AI Enhancements | 2-3 weeks | 🔄 In Progress (2.1, 2.2 done) |
+| 2 | AI Enhancements | 2-3 weeks | 🔄 In Progress (2.1, 2.2, 2.4 done) |
 | 3 | TUI MVP | 4-6 weeks | 🔲 Not Started |
 | 4 | TUI Polish | 2-3 weeks | 🔲 Not Started |
 
@@ -389,11 +389,11 @@ hoard ai cheatsheet ripgrep
 ```
 
 **Tasks:**
-- [ ] Create cheatsheet prompt template
-- [ ] Fetch --help output for tool
-- [ ] Generate concise cheatsheet with AI
-- [ ] Format for terminal display
-- [ ] Cache generated cheatsheets
+- [x] Create cheatsheet prompt template
+- [x] Fetch --help output for tool
+- [x] Generate concise cheatsheet with AI
+- [x] Format for terminal display
+- [x] Cache generated cheatsheets
 
 ---
 

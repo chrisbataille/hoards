@@ -170,6 +170,12 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_bundles_name ON bundles(name);
             CREATE INDEX IF NOT EXISTS idx_tool_labels_label ON tool_labels(label);
             CREATE INDEX IF NOT EXISTS idx_extraction_cache_repo ON extraction_cache(repo_owner, repo_name);
+
+            CREATE TABLE IF NOT EXISTS ai_cache (
+                cache_key TEXT PRIMARY KEY,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             "#,
         )?;
 
@@ -1267,6 +1273,39 @@ impl Database {
     pub fn clear_extraction_cache(&self) -> Result<usize> {
         let count = self.conn.execute("DELETE FROM extraction_cache", [])?;
         Ok(count)
+    }
+
+    // ==================== AI Cache Operations ====================
+
+    /// Get a cached value by key
+    pub fn get_ai_cache(&self, key: &str) -> Result<Option<String>> {
+        let result: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT content FROM ai_cache WHERE cache_key = ?",
+                [key],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(result)
+    }
+
+    /// Set a cached value
+    pub fn set_ai_cache(&self, key: &str, content: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO ai_cache (cache_key, content, created_at)
+             VALUES (?, ?, datetime('now'))",
+            rusqlite::params![key, content],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a cached value
+    pub fn delete_ai_cache(&self, key: &str) -> Result<bool> {
+        let count = self
+            .conn
+            .execute("DELETE FROM ai_cache WHERE cache_key = ?", [key])?;
+        Ok(count > 0)
     }
 }
 

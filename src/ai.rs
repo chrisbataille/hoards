@@ -74,6 +74,64 @@ README content:
 {{README}}
 "#;
 
+const DEFAULT_CHEATSHEET_PROMPT: &str = r#"Create a concise CLI cheatsheet for the tool "{{TOOL_NAME}}" based on its --help output.
+
+Guidelines:
+1. Group commands by category (BASIC USAGE, FILE FILTERING, OUTPUT, etc.)
+2. Show the most useful/common commands first
+3. Keep descriptions very short (2-4 words max)
+4. Include 3-5 categories with 3-5 commands each
+5. Use the actual binary name in examples
+
+Respond with JSON:
+{
+  "title": "tool-name (binary) - Short description",
+  "sections": [
+    {
+      "name": "CATEGORY NAME",
+      "commands": [
+        {"cmd": "binary -flag arg", "desc": "Brief description"}
+      ]
+    }
+  ]
+}
+
+Tool --help output:
+{{HELP_OUTPUT}}
+"#;
+
+const DEFAULT_BUNDLE_CHEATSHEET_PROMPT: &str = r#"Create a workflow-oriented cheatsheet for a bundle of related CLI tools.
+
+IMPORTANT: Organize by WORKFLOW/TASK, not by individual tool. Group related commands from different tools together based on what task they accomplish.
+
+Bundle name: {{BUNDLE_NAME}}
+Tools in bundle: {{TOOL_LIST}}
+
+Guidelines:
+1. Create categories based on workflows (e.g., "PROJECT SETUP", "DAILY WORKFLOW", "CODE QUALITY", "DEBUGGING")
+2. Mix commands from different tools when they relate to the same workflow
+3. Show the most common workflow patterns first
+4. Keep descriptions very short (2-4 words max)
+5. Include 4-6 categories with 3-6 commands each
+6. Prefix commands with the tool name if ambiguous
+
+Respond with JSON:
+{
+  "title": "Bundle Name - Workflow description",
+  "sections": [
+    {
+      "name": "WORKFLOW CATEGORY",
+      "commands": [
+        {"cmd": "tool command -flag", "desc": "Brief description"}
+      ]
+    }
+  ]
+}
+
+Tool help outputs:
+{{HELP_OUTPUTS}}
+"#;
+
 // ==================== Prompt loading ====================
 
 /// Get the prompts directory path
@@ -464,6 +522,207 @@ pub fn parse_extract_response(response: &str) -> Result<ExtractedTool> {
     }
 
     Ok(tool)
+}
+
+// ==================== Cheatsheet ====================
+
+/// A command in a cheatsheet section
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CheatsheetCommand {
+    pub cmd: String,
+    pub desc: String,
+}
+
+/// A section in a cheatsheet
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CheatsheetSection {
+    pub name: String,
+    pub commands: Vec<CheatsheetCommand>,
+}
+
+/// Generated cheatsheet for a tool
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Cheatsheet {
+    pub title: String,
+    pub sections: Vec<CheatsheetSection>,
+}
+
+/// Cached cheatsheet with version info for invalidation
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CachedCheatsheet {
+    pub version: Option<String>,
+    pub cheatsheet: Cheatsheet,
+}
+
+/// Get tool version by running `tool --version`
+pub fn get_tool_version(binary: &str) -> Option<String> {
+    use std::process::Command;
+
+    let output = Command::new(binary).arg("--version").output().ok()?;
+
+    if output.status.success() {
+        let version = String::from_utf8_lossy(&output.stdout);
+        let version = version.trim();
+        if !version.is_empty() {
+            // Extract just the version number if possible (first line, cleaned up)
+            let first_line = version.lines().next().unwrap_or(version);
+            return Some(first_line.to_string());
+        }
+    }
+
+    None
+}
+
+/// Generate a cheatsheet prompt from --help output
+pub fn cheatsheet_prompt(tool_name: &str, help_output: &str) -> String {
+    let template = load_prompt("cheatsheet", DEFAULT_CHEATSHEET_PROMPT);
+
+    // Truncate help output if too long (keep first 4000 chars)
+    let truncated_help = if help_output.len() > 4000 {
+        format!("{}...\n[truncated]", &help_output[..4000])
+    } else {
+        help_output.to_string()
+    };
+
+    template
+        .replace("{{TOOL_NAME}}", tool_name)
+        .replace("{{HELP_OUTPUT}}", &truncated_help)
+}
+
+/// Generate a bundle cheatsheet prompt from multiple tools' --help outputs
+pub fn bundle_cheatsheet_prompt(
+    bundle_name: &str,
+    tools_help: &[(String, String)], // (tool_name, help_output)
+) -> String {
+    let template = load_prompt("bundle_cheatsheet", DEFAULT_BUNDLE_CHEATSHEET_PROMPT);
+
+    let tool_list = tools_help
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // Combine help outputs with clear separators, truncating each if needed
+    let mut combined_help = String::new();
+    for (name, help) in tools_help {
+        combined_help.push_str(&format!("\n=== {} ===\n", name));
+        if help.len() > 2000 {
+            combined_help.push_str(&format!("{}...\n[truncated]\n", &help[..2000]));
+        } else {
+            combined_help.push_str(help);
+        }
+    }
+
+    // Overall truncation if still too long
+    let final_help = if combined_help.len() > 12000 {
+        format!("{}...\n[truncated]", &combined_help[..12000])
+    } else {
+        combined_help
+    };
+
+    template
+        .replace("{{BUNDLE_NAME}}", bundle_name)
+        .replace("{{TOOL_LIST}}", &tool_list)
+        .replace("{{HELP_OUTPUTS}}", &final_help)
+}
+
+/// Parse cheatsheet response from AI
+pub fn parse_cheatsheet_response(response: &str) -> Result<Cheatsheet> {
+    let json_str = extract_json_object(response)?;
+    let cheatsheet: Cheatsheet =
+        serde_json::from_str(&json_str).context("Failed to parse AI cheatsheet response")?;
+    Ok(cheatsheet)
+}
+
+/// Get --help output for a tool
+pub fn get_help_output(binary: &str) -> Result<String> {
+    use std::process::Command;
+
+    // Try --help first, then -h
+    let output = Command::new(binary)
+        .arg("--help")
+        .output()
+        .or_else(|_| Command::new(binary).arg("-h").output())
+        .with_context(|| format!("Failed to run {} --help", binary))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Some tools output help to stderr
+    let help_text = if stdout.len() > stderr.len() {
+        stdout.to_string()
+    } else {
+        stderr.to_string()
+    };
+
+    if help_text.trim().is_empty() {
+        bail!("No help output from {}", binary);
+    }
+
+    Ok(help_text)
+}
+
+/// Format a cheatsheet for terminal display using comfy-table
+pub fn format_cheatsheet(cheatsheet: &Cheatsheet) -> String {
+    use comfy_table::{
+        Attribute, Cell, Color, ContentArrangement, Table, modifiers::UTF8_ROUND_CORNERS,
+        presets::UTF8_FULL,
+    };
+
+    let mut output = Vec::new();
+
+    // Create title table
+    let mut title_table = Table::new();
+    title_table
+        .load_preset(UTF8_FULL)
+        .apply_modifier(UTF8_ROUND_CORNERS)
+        .set_content_arrangement(ContentArrangement::Dynamic)
+        .set_width(72);
+
+    title_table.add_row(vec![
+        Cell::new(&cheatsheet.title)
+            .add_attribute(Attribute::Bold)
+            .fg(Color::Cyan),
+    ]);
+
+    output.push(title_table.to_string());
+    output.push(String::new());
+
+    // Create a table for each section
+    for section in &cheatsheet.sections {
+        let mut table = Table::new();
+        table
+            .load_preset(UTF8_FULL)
+            .apply_modifier(UTF8_ROUND_CORNERS)
+            .set_content_arrangement(ContentArrangement::Dynamic)
+            .set_width(72);
+
+        // Section header
+        table.set_header(vec![
+            Cell::new(&section.name)
+                .add_attribute(Attribute::Bold)
+                .fg(Color::Green),
+            Cell::new(""),
+        ]);
+
+        // Commands
+        for cmd in &section.commands {
+            table.add_row(vec![
+                Cell::new(&cmd.cmd).fg(Color::Yellow),
+                Cell::new(&cmd.desc),
+            ]);
+        }
+
+        output.push(table.to_string());
+        output.push(String::new());
+    }
+
+    // Remove trailing empty line
+    if output.last().map(|s| s.is_empty()).unwrap_or(false) {
+        output.pop();
+    }
+
+    output.join("\n")
 }
 
 // ==================== JSON extraction helpers ====================

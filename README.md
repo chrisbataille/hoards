@@ -174,6 +174,11 @@ hoards ai extract url --yes         # Skip confirmation
 # Smart Bundle Suggestions
 hoards ai suggest-bundle            # AI suggests bundles based on usage
 hoards ai suggest-bundle --count 3  # Suggest 3 bundles
+
+# Tool Cheatsheets
+hoards ai cheatsheet <tool>         # Generate quick reference
+hoards ai cheatsheet ripgrep        # Example: ripgrep cheatsheet
+hoards ai cheatsheet git --refresh  # Regenerate cached cheatsheet
 ```
 
 ### Config Management

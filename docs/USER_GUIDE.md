@@ -610,6 +610,39 @@ Action
   [s] Skip this suggestion
 ```
 
+### Tool Cheatsheets
+
+Generate concise quick reference cards for any tool:
+
+```bash
+# Generate a cheatsheet for a tool
+hoards ai cheatsheet ripgrep
+
+# Regenerate a cached cheatsheet
+hoards ai cheatsheet git --refresh
+```
+
+Cheatsheets are cached locally and retrieved instantly on subsequent requests. Use `--refresh` to regenerate.
+
+Example output:
+```
+┌──────────────────────────────────────────────┐
+│  ripgrep (rg) - Fast recursive regex search  │
+├──────────────────────────────────────────────┤
+│ BASIC USAGE                                 │
+│   rg pattern       Search current directory │
+│   rg -i pattern            Case insensitive │
+│                                              │
+│ FILE FILTERING                              │
+│   rg -t py pattern      Search Python files │
+│   rg -g '*.json' pattern        Glob filter │
+│                                              │
+│ OUTPUT CONTROL                              │
+│   rg -l pattern          Files with matches │
+│   rg -C 3 pattern             Context lines │
+└──────────────────────────────────────────────┘
+```
+
 ---
 
 ## Config Management
