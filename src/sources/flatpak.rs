@@ -83,11 +83,7 @@ impl PackageSource for FlatpakSource {
             if let Some(ver) = version {
                 tool.notes = Some(format!("Version: {}", ver));
             }
-
-            // Fetch description
-            if let Some(desc) = self.fetch_description(app_id) {
-                tool = tool.with_description(desc);
-            }
+            // Description fetched in parallel by cmd_scan
 
             tools.push(tool);
         }

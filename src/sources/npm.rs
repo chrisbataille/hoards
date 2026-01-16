@@ -54,17 +54,13 @@ impl PackageSource for NpmSource {
                     continue;
                 }
 
-                let mut tool = Tool::new(package)
+                let tool = Tool::new(package)
                     .with_source(InstallSource::Npm)
                     .with_binary(package)
                     .with_category("cli")
                     .with_install_command(self.install_command(package))
                     .installed();
-
-                // Fetch description from npm registry
-                if let Some(description) = self.fetch_description(package) {
-                    tool = tool.with_description(description);
-                }
+                // Description fetched in parallel by cmd_scan
 
                 tools.push(tool);
             }

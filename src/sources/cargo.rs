@@ -42,17 +42,13 @@ impl PackageSource for CargoSource {
                         .iter()
                         .any(|kt| kt.name == crate_name || kt.binary == binary);
                     if !dominated {
-                        let mut tool = Tool::new(crate_name)
+                        let tool = Tool::new(crate_name)
                             .with_source(InstallSource::Cargo)
                             .with_binary(binary)
                             .with_category("cli")
                             .with_install_command(self.install_command(crate_name))
                             .installed();
-
-                        // Fetch description from crates.io
-                        if let Some(description) = self.fetch_description(crate_name) {
-                            tool = tool.with_description(description);
-                        }
+                        // Description fetched in parallel by cmd_scan
 
                         tools.push(tool);
                     }

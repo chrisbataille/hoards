@@ -53,17 +53,13 @@ impl PackageSource for PipSource {
                 continue;
             }
 
-            let mut tool = Tool::new(&package)
+            let tool = Tool::new(&package)
                 .with_source(InstallSource::Pip)
                 .with_binary(&package)
                 .with_category("cli")
                 .with_install_command(self.install_command(&package))
                 .installed();
-
-            // Fetch description from PyPI
-            if let Some(description) = self.fetch_description(&package) {
-                tool = tool.with_description(description);
-            }
+            // Description fetched in parallel by cmd_scan
 
             tools.push(tool);
         }

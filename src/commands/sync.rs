@@ -65,6 +65,7 @@ pub fn cmd_scan(db: &Database, dry_run: bool) -> Result<()> {
     let mut added = 0;
     let mut skipped = 0;
     let mut tracked_binaries: HashSet<String> = HashSet::new();
+    let mut newly_added: Vec<Tool> = Vec::new();
 
     // Collect binaries already in database
     for tool in db.list_tools(false, None)? {
@@ -75,46 +76,53 @@ pub fn cmd_scan(db: &Database, dry_run: bool) -> Result<()> {
     }
 
     // Helper to process tools from any source
-    let mut process_tools = |tools: Vec<Tool>, source_name: &str, track: bool| -> Result<()> {
-        if tools.is_empty() {
-            return Ok(());
-        }
+    let mut process_tools =
+        |tools: Vec<Tool>, source_name: &str, track: bool| -> Result<Vec<Tool>> {
+            if tools.is_empty() {
+                return Ok(Vec::new());
+            }
 
-        println!("{} {} tools:", ">".cyan(), source_name);
+            println!("{} {} tools:", ">".cyan(), source_name);
+            let mut added_tools = Vec::new();
 
-        for tool in tools {
-            // Track binary for PATH scan exclusion
-            if track {
-                if let Some(ref bin) = tool.binary_name {
-                    tracked_binaries.insert(bin.clone());
+            for tool in tools {
+                // Track binary for PATH scan exclusion
+                if track {
+                    if let Some(ref bin) = tool.binary_name {
+                        tracked_binaries.insert(bin.clone());
+                    }
+                    tracked_binaries.insert(tool.name.clone());
                 }
-                tracked_binaries.insert(tool.name.clone());
-            }
 
-            // Check if already in database
-            if db.get_tool_by_name(&tool.name)?.is_some() {
-                skipped += 1;
-                continue;
-            }
+                // Check if already in database
+                if db.get_tool_by_name(&tool.name)?.is_some() {
+                    skipped += 1;
+                    continue;
+                }
 
-            println!(
-                "  {} {} ({})",
-                "+".green(),
-                tool.name,
-                tool.category.as_deref().unwrap_or("?")
-            );
+                println!(
+                    "  {} {} ({})",
+                    "+".green(),
+                    tool.name,
+                    tool.category.as_deref().unwrap_or("?")
+                );
 
-            if !dry_run {
-                db.insert_tool(&tool)?;
+                if !dry_run {
+                    db.insert_tool(&tool)?;
+                }
+                added += 1;
+
+                // Track tools that need descriptions
+                if tool.description.is_none() {
+                    added_tools.push(tool);
+                }
             }
-            added += 1;
-        }
-        println!();
-        Ok(())
-    };
+            println!();
+            Ok(added_tools)
+        };
 
     // 1. Scan known tools (curated list with good metadata)
-    process_tools(scan_known_tools(), "Known", true)?;
+    newly_added.extend(process_tools(scan_known_tools(), "Known", true)?);
 
     // 2. Scan all package sources using the trait-based system
     for source in all_sources() {
@@ -126,7 +134,7 @@ pub fn cmd_scan(db: &Database, dry_run: bool) -> Result<()> {
         match source.scan() {
             Ok(tools) => {
                 let label = format!("{} ({})", source.name(), tools.len());
-                process_tools(tools, &label, true)?;
+                newly_added.extend(process_tools(tools, &label, true)?);
             }
             Err(e) => {
                 // Skip silently if source not installed (e.g., brew)
@@ -157,11 +165,46 @@ pub fn cmd_scan(db: &Database, dry_run: bool) -> Result<()> {
                     db.insert_tool(&tool)?;
                 }
                 added += 1;
+                if tool.description.is_none() {
+                    newly_added.push(tool);
+                }
             }
             println!();
         }
         Ok(_) => {}
         Err(e) => eprintln!("  {} path scan: {}", "!".yellow(), e),
+    }
+
+    // Fetch descriptions in parallel for newly added tools
+    if !newly_added.is_empty() && !dry_run {
+        println!(
+            "{} Fetching descriptions for {} tools in parallel...",
+            ">".cyan(),
+            newly_added.len()
+        );
+
+        let results: Vec<_> = thread::scope(|s| {
+            let handles: Vec<_> = newly_added
+                .iter()
+                .map(|tool| {
+                    s.spawn(move || {
+                        let desc = fetch_tool_description(tool);
+                        (tool.name.clone(), desc)
+                    })
+                })
+                .collect();
+
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+
+        let mut desc_updated = 0;
+        for (name, result) in results {
+            if let Some((desc, _source)) = result {
+                db.update_tool_description(&name, &desc)?;
+                desc_updated += 1;
+            }
+        }
+        println!("  {} {} descriptions fetched\n", "+".green(), desc_updated);
     }
 
     // Summary
