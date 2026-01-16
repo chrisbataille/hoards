@@ -82,6 +82,9 @@ pub fn render(frame: &mut Frame, app: &mut App, db: &Database) {
         ])
         .split(area);
 
+    // Store areas for mouse interaction
+    app.set_tab_area(chunks[0].x, chunks[0].y, chunks[0].width, chunks[0].height);
+
     render_header(frame, app, &theme, chunks[0]);
     render_body(frame, app, db, &theme, chunks[1]);
     render_footer(frame, app, &theme, chunks[2]);
@@ -162,10 +165,13 @@ fn render_body(frame: &mut Frame, app: &mut App, db: &Database, theme: &Theme, a
             .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(area);
 
+        // Store list area for mouse interaction
+        app.set_list_area(chunks[0].x, chunks[0].y, chunks[0].width, chunks[0].height);
         render_tool_list(frame, app, theme, chunks[0]);
         render_details(frame, app, db, theme, chunks[1]);
     } else {
         // Narrow terminal: list only (details on Enter in future)
+        app.set_list_area(area.x, area.y, area.width, area.height);
         render_tool_list(frame, app, theme, area);
     }
 }
@@ -763,6 +769,18 @@ fn render_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
                 Span::styled(" cancel", Style::default().fg(theme.subtext0)),
             ]
         }
+        InputMode::Command => {
+            vec![
+                Span::styled(" :", Style::default().fg(theme.mauve)),
+                Span::styled(&app.command_input, Style::default().fg(theme.text)),
+                Span::styled("│", Style::default().fg(theme.blue)), // Cursor
+                Span::styled("  Enter", Style::default().fg(theme.blue)),
+                Span::styled(" execute ", Style::default().fg(theme.subtext0)),
+                Span::styled(" Esc", Style::default().fg(theme.blue)),
+                Span::styled(" cancel ", Style::default().fg(theme.subtext0)),
+                Span::styled(" (h for help)", Style::default().fg(theme.subtext0).dim()),
+            ]
+        }
     };
 
     let footer = Paragraph::new(Line::from(mode_text)).style(Style::default().bg(theme.surface0));
@@ -868,6 +886,13 @@ fn render_help_overlay(frame: &mut Frame, theme: &Theme, area: Rect) {
             Span::styled("Search/filter tools", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
+            Span::styled("  :        ", Style::default().fg(theme.mauve)),
+            Span::styled(
+                "Command palette (vim-style)",
+                Style::default().fg(theme.text),
+            ),
+        ]),
+        Line::from(vec![
             Span::styled("  s        ", Style::default().fg(theme.yellow)),
             Span::styled(
                 "Cycle sort (name/usage/recent)",
@@ -885,6 +910,31 @@ fn render_help_overlay(frame: &mut Frame, theme: &Theme, area: Rect) {
         Line::from(vec![
             Span::styled("  t        ", Style::default().fg(theme.teal)),
             Span::styled("Cycle theme", Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+z   ", Style::default().fg(theme.peach)),
+            Span::styled("Undo", Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+y   ", Style::default().fg(theme.peach)),
+            Span::styled("Redo", Style::default().fg(theme.text)),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Mouse",
+            Style::default().fg(theme.blue).bold(),
+        )]),
+        Line::from(vec![
+            Span::styled("  Click    ", Style::default().fg(theme.green)),
+            Span::styled("Select item / switch tab", Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("  R-Click  ", Style::default().fg(theme.green)),
+            Span::styled("Toggle selection", Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Scroll   ", Style::default().fg(theme.green)),
+            Span::styled("Navigate list", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
             Span::styled("  ?        ", Style::default().fg(theme.yellow)),

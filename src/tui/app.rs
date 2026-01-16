@@ -8,6 +8,71 @@ use crate::Update;
 use crate::db::{Database, GitHubInfo, ToolUsage};
 use crate::models::{Bundle, Tool};
 
+/// Fuzzy match a query against a target string (fzf-style)
+/// Returns Some(score) if matches, None if no match
+/// Higher scores = better matches
+fn fuzzy_match(query: &str, target: &str) -> Option<i32> {
+    let query = query.to_lowercase();
+    let target = target.to_lowercase();
+
+    if query.is_empty() {
+        return Some(0);
+    }
+
+    let query_chars: Vec<char> = query.chars().collect();
+    let target_chars: Vec<char> = target.chars().collect();
+
+    let mut query_idx = 0;
+    let mut score = 0i32;
+    let mut prev_match_idx: Option<usize> = None;
+    let mut consecutive_bonus = 0i32;
+
+    for (target_idx, &tc) in target_chars.iter().enumerate() {
+        if query_idx < query_chars.len() && tc == query_chars[query_idx] {
+            // Character matched
+            score += 1;
+
+            // Bonus for consecutive matches
+            if let Some(prev) = prev_match_idx {
+                if target_idx == prev + 1 {
+                    consecutive_bonus += 2;
+                    score += consecutive_bonus;
+                } else {
+                    consecutive_bonus = 0;
+                }
+            }
+
+            // Bonus for matching at word boundaries
+            if target_idx == 0
+                || target_chars
+                    .get(target_idx.wrapping_sub(1))
+                    .map(|c| !c.is_alphanumeric())
+                    .unwrap_or(true)
+            {
+                score += 3;
+            }
+
+            prev_match_idx = Some(target_idx);
+            query_idx += 1;
+        }
+    }
+
+    // All query characters must match
+    if query_idx == query_chars.len() {
+        // Bonus for exact match
+        if query == target {
+            score += 100;
+        }
+        // Bonus for prefix match
+        else if target.starts_with(&query) {
+            score += 50;
+        }
+        Some(score)
+    } else {
+        None
+    }
+}
+
 /// Available tabs in the TUI
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Tab {
@@ -58,6 +123,7 @@ pub enum InputMode {
     #[default]
     Normal,
     Search,
+    Command, // Vim-style command palette with ':'
 }
 
 /// Background operation that needs loading indicator
@@ -98,6 +164,74 @@ pub enum PendingAction {
     Install(Vec<String>),   // Tool names to install
     Uninstall(Vec<String>), // Tool names to uninstall
     Update(Vec<String>),    // Tool names to update
+}
+
+/// Undoable action for history
+#[derive(Debug, Clone)]
+pub enum UndoableAction {
+    /// Selection change (stores previous selection state)
+    Selection(HashSet<String>),
+    /// Filter/search change (stores previous query)
+    Filter(String),
+    /// Tab switch (stores previous tab)
+    TabSwitch(Tab),
+    /// Sort change (stores previous sort)
+    Sort(SortBy),
+}
+
+/// Action history for undo/redo
+#[derive(Debug, Default)]
+pub struct ActionHistory {
+    undo_stack: Vec<UndoableAction>,
+    redo_stack: Vec<UndoableAction>,
+    max_size: usize,
+}
+
+impl ActionHistory {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            max_size,
+        }
+    }
+
+    /// Push an action to the undo stack
+    pub fn push(&mut self, action: UndoableAction) {
+        if self.undo_stack.len() >= self.max_size {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push(action);
+        self.redo_stack.clear(); // Clear redo on new action
+    }
+
+    /// Pop an action for undo
+    pub fn pop_undo(&mut self) -> Option<UndoableAction> {
+        self.undo_stack.pop()
+    }
+
+    /// Push to redo stack
+    pub fn push_redo(&mut self, action: UndoableAction) {
+        if self.redo_stack.len() >= self.max_size {
+            self.redo_stack.remove(0);
+        }
+        self.redo_stack.push(action);
+    }
+
+    /// Pop an action for redo
+    pub fn pop_redo(&mut self) -> Option<UndoableAction> {
+        self.redo_stack.pop()
+    }
+
+    /// Check if undo is available
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    /// Check if redo is available
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
 }
 
 impl PendingAction {
@@ -174,6 +308,7 @@ pub struct App {
     pub tab: Tab,
     pub input_mode: InputMode,
     pub search_query: String,
+    pub command_input: String, // Command palette input (after ':')
 
     // Tool list state
     pub all_tools: Vec<Tool>, // All tools for current tab (unfiltered)
@@ -211,6 +346,13 @@ pub struct App {
     // Background operations (executed by main loop with loading indicator)
     pub background_op: Option<BackgroundOp>,
     pub loading_progress: LoadingProgress,
+
+    // Undo/redo history
+    pub history: ActionHistory,
+
+    // Mouse interaction state
+    pub last_list_area: Option<(u16, u16, u16, u16)>, // (x, y, width, height) of tool list
+    pub last_tab_area: Option<(u16, u16, u16, u16)>,  // (x, y, width, height) of tabs
 }
 
 impl App {
@@ -238,6 +380,7 @@ impl App {
             tab: Tab::Installed,
             input_mode: InputMode::Normal,
             search_query: String::new(),
+            command_input: String::new(),
             all_tools,
             tools,
             selected_index: 0,
@@ -259,6 +402,9 @@ impl App {
             status_message: None,
             background_op: None,
             loading_progress: LoadingProgress::default(),
+            history: ActionHistory::new(50), // Keep 50 actions max
+            last_list_area: None,
+            last_tab_area: None,
         })
     }
 
@@ -358,42 +504,62 @@ impl App {
     /// Apply current search filter and sort to tools
     pub fn apply_filter_and_sort(&mut self) {
         // Start with all tools
-        let mut filtered: Vec<Tool> = if self.search_query.is_empty() {
-            self.all_tools.clone()
+        let mut filtered: Vec<(Tool, i32)> = if self.search_query.is_empty() {
+            self.all_tools.iter().map(|t| (t.clone(), 0)).collect()
         } else {
-            let query = self.search_query.to_lowercase();
+            // Fuzzy match against name, description, and category
             self.all_tools
                 .iter()
-                .filter(|t| {
-                    t.name.to_lowercase().contains(&query)
-                        || t.description
-                            .as_ref()
-                            .is_some_and(|d| d.to_lowercase().contains(&query))
-                        || t.category
-                            .as_ref()
-                            .is_some_and(|c| c.to_lowercase().contains(&query))
+                .filter_map(|t| {
+                    // Get best score across all fields
+                    let name_score = fuzzy_match(&self.search_query, &t.name);
+                    let desc_score = t
+                        .description
+                        .as_ref()
+                        .and_then(|d| fuzzy_match(&self.search_query, d));
+                    let cat_score = t
+                        .category
+                        .as_ref()
+                        .and_then(|c| fuzzy_match(&self.search_query, c));
+
+                    // Use best score (name matches get priority bonus)
+                    let score = [
+                        name_score.map(|s| s + 10), // Bonus for name match
+                        desc_score,
+                        cat_score,
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .max();
+
+                    score.map(|s| (t.clone(), s))
                 })
-                .cloned()
                 .collect()
         };
 
-        // Sort
-        match self.sort_by {
-            SortBy::Name => filtered.sort_by(|a, b| a.name.cmp(&b.name)),
-            SortBy::Usage => {
-                let usage = &self.usage_data;
-                filtered.sort_by(|a, b| {
-                    let a_usage = usage.get(&a.name).map(|u| u.use_count).unwrap_or(0);
-                    let b_usage = usage.get(&b.name).map(|u| u.use_count).unwrap_or(0);
-                    b_usage.cmp(&a_usage) // Descending
-                });
-            }
-            SortBy::Recent => {
-                filtered.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        // Sort by fuzzy score when searching, otherwise by user preference
+        if !self.search_query.is_empty() {
+            // Sort by score descending (best matches first)
+            filtered.sort_by(|a, b| b.1.cmp(&a.1));
+        } else {
+            // Sort by user preference
+            match self.sort_by {
+                SortBy::Name => filtered.sort_by(|a, b| a.0.name.cmp(&b.0.name)),
+                SortBy::Usage => {
+                    let usage = &self.usage_data;
+                    filtered.sort_by(|a, b| {
+                        let a_usage = usage.get(&a.0.name).map(|u| u.use_count).unwrap_or(0);
+                        let b_usage = usage.get(&b.0.name).map(|u| u.use_count).unwrap_or(0);
+                        b_usage.cmp(&a_usage) // Descending
+                    });
+                }
+                SortBy::Recent => {
+                    filtered.sort_by(|a, b| b.0.updated_at.cmp(&a.0.updated_at));
+                }
             }
         }
 
-        self.tools = filtered;
+        self.tools = filtered.into_iter().map(|(t, _)| t).collect();
 
         // Adjust selection if needed
         if self.selected_index >= self.tools.len() {
@@ -489,6 +655,7 @@ impl App {
 
     /// Enter search mode
     pub fn enter_search(&mut self) {
+        self.record_filter(); // Record current filter for undo
         self.input_mode = InputMode::Search;
         self.search_query.clear();
     }
@@ -512,16 +679,202 @@ impl App {
 
     /// Clear search and show all tools
     pub fn clear_search(&mut self) {
-        self.search_query.clear();
+        if !self.search_query.is_empty() {
+            self.record_filter(); // Record for undo
+            self.search_query.clear();
+            self.apply_filter_and_sort();
+        }
+    }
+
+    // ==================== Command Palette ====================
+
+    /// Enter command mode (vim-style ':')
+    pub fn enter_command(&mut self) {
+        self.input_mode = InputMode::Command;
+        self.command_input.clear();
+    }
+
+    /// Exit command mode
+    pub fn exit_command(&mut self) {
+        self.input_mode = InputMode::Normal;
+        self.command_input.clear();
+    }
+
+    /// Add character to command input
+    pub fn command_push(&mut self, c: char) {
+        self.command_input.push(c);
+    }
+
+    /// Remove last character from command input
+    pub fn command_pop(&mut self) {
+        self.command_input.pop();
+    }
+
+    /// Execute the current command
+    pub fn execute_command(&mut self, db: &Database) {
+        let cmd = self.command_input.trim().to_lowercase();
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+
+        if parts.is_empty() {
+            self.exit_command();
+            return;
+        }
+
+        match parts[0] {
+            // Quit commands
+            "q" | "quit" | "exit" => self.quit(),
+
+            // Help
+            "h" | "help" => {
+                self.show_help = true;
+                self.exit_command();
+            }
+
+            // Refresh
+            "r" | "refresh" => {
+                self.refresh_tools(db);
+                self.exit_command();
+            }
+
+            // Theme commands
+            "theme" | "t" => {
+                if parts.len() > 1 {
+                    self.set_theme_by_name(parts[1]);
+                } else {
+                    self.cycle_theme();
+                }
+                self.exit_command();
+            }
+
+            // Sort commands
+            "sort" | "s" => {
+                if parts.len() > 1 {
+                    self.set_sort_by_name(parts[1]);
+                } else {
+                    self.cycle_sort();
+                }
+                self.exit_command();
+            }
+
+            // Tab navigation
+            "installed" | "1" => {
+                self.switch_tab(Tab::Installed, db);
+                self.exit_command();
+            }
+            "available" | "2" => {
+                self.switch_tab(Tab::Available, db);
+                self.exit_command();
+            }
+            "updates" | "3" => {
+                self.switch_tab(Tab::Updates, db);
+                self.exit_command();
+            }
+            "bundles" | "4" => {
+                self.switch_tab(Tab::Bundles, db);
+                self.exit_command();
+            }
+
+            // Install/Uninstall/Update
+            "i" | "install" => {
+                if self.tab == Tab::Bundles {
+                    self.request_bundle_install(db);
+                } else {
+                    self.request_install();
+                }
+                self.exit_command();
+            }
+            "d" | "delete" | "uninstall" => {
+                self.request_uninstall();
+                self.exit_command();
+            }
+            "u" | "update" | "upgrade" => {
+                self.request_update();
+                self.exit_command();
+            }
+
+            // Undo/Redo
+            "undo" | "z" => {
+                self.undo();
+                self.exit_command();
+            }
+            "redo" | "y" => {
+                self.redo();
+                self.exit_command();
+            }
+
+            // Unknown command
+            _ => {
+                self.set_status(format!("Unknown command: {}", parts[0]), true);
+                self.exit_command();
+            }
+        }
+    }
+
+    /// Set theme by name
+    fn set_theme_by_name(&mut self, name: &str) {
+        use super::theme::ThemeVariant;
+        self.theme_variant = match name {
+            "mocha" | "catppuccin" | "catppuccin-mocha" => ThemeVariant::CatppuccinMocha,
+            "latte" | "catppuccin-latte" => ThemeVariant::CatppuccinLatte,
+            "dracula" => ThemeVariant::Dracula,
+            "nord" => ThemeVariant::Nord,
+            "tokyo" | "tokyo-night" | "tokyonight" => ThemeVariant::TokyoNight,
+            "gruvbox" => ThemeVariant::Gruvbox,
+            _ => {
+                self.set_status(
+                    "Themes: mocha, latte, dracula, nord, tokyo, gruvbox".to_string(),
+                    true,
+                );
+                return;
+            }
+        };
+        self.set_status(format!("Theme: {}", self.theme().name), false);
+    }
+
+    /// Set sort by name
+    fn set_sort_by_name(&mut self, name: &str) {
+        self.sort_by = match name {
+            "name" | "n" | "alpha" => SortBy::Name,
+            "usage" | "u" | "used" => SortBy::Usage,
+            "recent" | "r" | "last" => SortBy::Recent,
+            _ => {
+                self.set_status("Sort: name, usage, recent".to_string(), true);
+                return;
+            }
+        };
         self.apply_filter_and_sort();
+        self.set_status(format!("Sort by: {:?}", self.sort_by), false);
+    }
+
+    /// Get available commands for autocomplete hints
+    #[allow(dead_code)]
+    pub fn get_command_suggestions(&self) -> Vec<(&'static str, &'static str)> {
+        vec![
+            ("q, quit", "Exit the application"),
+            ("h, help", "Show help"),
+            ("r, refresh", "Refresh tools list"),
+            (
+                "t, theme [name]",
+                "Cycle or set theme (mocha, latte, dracula, nord, tokyo, gruvbox)",
+            ),
+            ("s, sort [field]", "Cycle or set sort (name, usage, recent)"),
+            ("1-4", "Switch to tab by number"),
+            ("i, install", "Install selected"),
+            ("d, delete", "Uninstall selected"),
+            ("u, update", "Update selected"),
+            ("undo, z", "Undo last action"),
+            ("redo, y", "Redo last undone action"),
+        ]
     }
 
     // ==================== Selection ====================
 
     /// Toggle selection of current tool
     pub fn toggle_selection(&mut self) {
-        if let Some(tool) = self.selected_tool() {
-            let name = tool.name.clone();
+        // Get tool name first to avoid borrow checker issues
+        let tool_name = self.selected_tool().map(|t| t.name.clone());
+        if let Some(name) = tool_name {
+            self.record_selection(); // Record for undo
             if self.selected_tools.contains(&name) {
                 self.selected_tools.remove(&name);
             } else {
@@ -537,11 +890,15 @@ impl App {
 
     /// Clear all selections
     pub fn clear_selection(&mut self) {
-        self.selected_tools.clear();
+        if !self.selected_tools.is_empty() {
+            self.record_selection(); // Record for undo
+            self.selected_tools.clear();
+        }
     }
 
     /// Select all visible tools
     pub fn select_all(&mut self) {
+        self.record_selection(); // Record for undo
         for tool in &self.tools {
             self.selected_tools.insert(tool.name.clone());
         }
@@ -567,6 +924,164 @@ impl App {
     /// Close details popup
     pub fn close_details_popup(&mut self) {
         self.show_details_popup = false;
+    }
+
+    // ==================== Mouse Support ====================
+
+    /// Set the list area for mouse interaction
+    pub fn set_list_area(&mut self, x: u16, y: u16, width: u16, height: u16) {
+        self.last_list_area = Some((x, y, width, height));
+    }
+
+    /// Set the tab area for mouse interaction
+    pub fn set_tab_area(&mut self, x: u16, y: u16, width: u16, height: u16) {
+        self.last_tab_area = Some((x, y, width, height));
+    }
+
+    /// Handle mouse click on list item
+    pub fn click_list_item(&mut self, row: u16) {
+        // row is relative to list area top
+        let target_index = self.list_offset + row as usize;
+        if target_index < self.tools.len() {
+            self.selected_index = target_index;
+        }
+    }
+
+    /// Handle mouse click on tab
+    pub fn click_tab(&mut self, x: u16, db: &Database) {
+        // Simple heuristic: divide tab area into 4 equal parts
+        if let Some((area_x, _, width, _)) = self.last_tab_area {
+            let relative_x = x.saturating_sub(area_x);
+            let tab_width = width / 4;
+            let tab_index = relative_x / tab_width.max(1);
+
+            match tab_index {
+                0 => self.switch_tab(Tab::Installed, db),
+                1 => self.switch_tab(Tab::Available, db),
+                2 => self.switch_tab(Tab::Updates, db),
+                3 => self.switch_tab(Tab::Bundles, db),
+                _ => {}
+            }
+        }
+    }
+
+    /// Check if click is in list area and return relative row
+    pub fn get_list_row(&self, x: u16, y: u16) -> Option<u16> {
+        if let Some((area_x, area_y, width, height)) = self.last_list_area
+            && x >= area_x
+            && x < area_x + width
+            && y >= area_y
+            && y < area_y + height
+        {
+            // Skip header row
+            if y > area_y {
+                return Some(y - area_y - 1);
+            }
+        }
+        None
+    }
+
+    /// Check if click is in tab area
+    pub fn is_in_tab_area(&self, x: u16, y: u16) -> bool {
+        if let Some((area_x, area_y, width, height)) = self.last_tab_area {
+            x >= area_x && x < area_x + width && y >= area_y && y < area_y + height
+        } else {
+            false
+        }
+    }
+
+    // ==================== Undo/Redo ====================
+
+    /// Undo the last action
+    pub fn undo(&mut self) {
+        if let Some(action) = self.history.pop_undo() {
+            // Save current state for redo
+            let redo_action = match &action {
+                UndoableAction::Selection(_) => {
+                    UndoableAction::Selection(self.selected_tools.clone())
+                }
+                UndoableAction::Filter(_) => UndoableAction::Filter(self.search_query.clone()),
+                UndoableAction::TabSwitch(_) => UndoableAction::TabSwitch(self.tab),
+                UndoableAction::Sort(_) => UndoableAction::Sort(self.sort_by),
+            };
+            self.history.push_redo(redo_action);
+
+            // Restore previous state
+            match action {
+                UndoableAction::Selection(prev) => {
+                    self.selected_tools = prev;
+                    self.set_status("Selection restored".to_string(), false);
+                }
+                UndoableAction::Filter(prev) => {
+                    self.search_query = prev;
+                    self.apply_filter_and_sort();
+                    self.set_status("Filter restored".to_string(), false);
+                }
+                UndoableAction::TabSwitch(prev) => {
+                    self.tab = prev;
+                    self.set_status(format!("Tab: {:?}", self.tab), false);
+                }
+                UndoableAction::Sort(prev) => {
+                    self.sort_by = prev;
+                    self.apply_filter_and_sort();
+                    self.set_status(format!("Sort: {:?}", self.sort_by), false);
+                }
+            }
+        } else {
+            self.set_status("Nothing to undo".to_string(), true);
+        }
+    }
+
+    /// Redo the last undone action
+    pub fn redo(&mut self) {
+        if let Some(action) = self.history.pop_redo() {
+            // Save current state for undo
+            let undo_action = match &action {
+                UndoableAction::Selection(_) => {
+                    UndoableAction::Selection(self.selected_tools.clone())
+                }
+                UndoableAction::Filter(_) => UndoableAction::Filter(self.search_query.clone()),
+                UndoableAction::TabSwitch(_) => UndoableAction::TabSwitch(self.tab),
+                UndoableAction::Sort(_) => UndoableAction::Sort(self.sort_by),
+            };
+            self.history.undo_stack.push(undo_action);
+
+            // Apply the redo action
+            match action {
+                UndoableAction::Selection(new) => {
+                    self.selected_tools = new;
+                    self.set_status("Selection redone".to_string(), false);
+                }
+                UndoableAction::Filter(new) => {
+                    self.search_query = new;
+                    self.apply_filter_and_sort();
+                    self.set_status("Filter redone".to_string(), false);
+                }
+                UndoableAction::TabSwitch(new) => {
+                    self.tab = new;
+                    self.set_status(format!("Tab: {:?}", self.tab), false);
+                }
+                UndoableAction::Sort(new) => {
+                    self.sort_by = new;
+                    self.apply_filter_and_sort();
+                    self.set_status(format!("Sort: {:?}", self.sort_by), false);
+                }
+            }
+        } else {
+            self.set_status("Nothing to redo".to_string(), true);
+        }
+    }
+
+    /// Record a selection change
+    fn record_selection(&mut self) {
+        self.history
+            .push(UndoableAction::Selection(self.selected_tools.clone()));
+    }
+
+    /// Record a filter change
+    fn record_filter(&mut self) {
+        self.history
+            .push(UndoableAction::Filter(self.search_query.clone()));
     }
 
     // ==================== Actions ====================
@@ -785,5 +1300,253 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fuzzy_match_exact() {
+        assert!(fuzzy_match("ripgrep", "ripgrep").is_some());
+        let score = fuzzy_match("ripgrep", "ripgrep").unwrap();
+        assert!(score > 100); // Exact match bonus
+    }
+
+    #[test]
+    fn test_fuzzy_match_prefix() {
+        assert!(fuzzy_match("rip", "ripgrep").is_some());
+        let score = fuzzy_match("rip", "ripgrep").unwrap();
+        assert!(score > 50); // Prefix bonus
+    }
+
+    #[test]
+    fn test_fuzzy_match_subsequence() {
+        // "rg" matches "ripgrep" (r...g)
+        assert!(fuzzy_match("rg", "ripgrep").is_some());
+
+        // "fdf" matches "fd-find"
+        assert!(fuzzy_match("fdf", "fd-find").is_some());
+    }
+
+    #[test]
+    fn test_fuzzy_match_no_match() {
+        // Characters must appear in order in target
+        assert!(fuzzy_match("xyz", "ripgrep").is_none());
+        assert!(fuzzy_match("abc", "ripgrep").is_none());
+        // "gr" actually matches ripGRep (g at 3, r at 4)
+        assert!(fuzzy_match("gr", "ripgrep").is_some());
+    }
+
+    #[test]
+    fn test_fuzzy_match_case_insensitive() {
+        assert!(fuzzy_match("RIP", "ripgrep").is_some());
+        assert!(fuzzy_match("rip", "RIPGREP").is_some());
+    }
+
+    #[test]
+    fn test_fuzzy_match_word_boundary_bonus() {
+        // Matching at word boundary should score higher
+        let boundary_score = fuzzy_match("f", "fd-find").unwrap();
+        let mid_score = fuzzy_match("i", "fd-find").unwrap();
+        assert!(boundary_score > mid_score);
+    }
+
+    #[test]
+    fn test_fuzzy_match_consecutive_bonus() {
+        // Consecutive matches should score higher
+        let consecutive = fuzzy_match("rip", "ripgrep").unwrap();
+        let spread = fuzzy_match("rgp", "ripgrep").unwrap(); // r...g...p (positions 0,3,6)
+        assert!(consecutive > spread);
+    }
+
+    // ==================== Command Palette Tests ====================
+
+    #[test]
+    fn test_command_mode_enter_exit() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        assert_eq!(app.input_mode, InputMode::Normal);
+        assert!(app.command_input.is_empty());
+
+        app.enter_command();
+        assert_eq!(app.input_mode, InputMode::Command);
+        assert!(app.command_input.is_empty());
+
+        app.command_push('q');
+        assert_eq!(app.command_input, "q");
+
+        app.exit_command();
+        assert_eq!(app.input_mode, InputMode::Normal);
+        assert!(app.command_input.is_empty());
+    }
+
+    #[test]
+    fn test_command_push_pop() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        app.enter_command();
+        app.command_push('h');
+        app.command_push('e');
+        app.command_push('l');
+        app.command_push('p');
+        assert_eq!(app.command_input, "help");
+
+        app.command_pop();
+        assert_eq!(app.command_input, "hel");
+
+        app.command_pop();
+        app.command_pop();
+        app.command_pop();
+        assert!(app.command_input.is_empty());
+    }
+
+    #[test]
+    fn test_command_execute_help() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        app.enter_command();
+        app.command_push('h');
+        app.execute_command(&db);
+
+        assert!(app.show_help);
+        assert_eq!(app.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_command_execute_quit() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        assert!(app.running);
+        app.enter_command();
+        app.command_push('q');
+        app.execute_command(&db);
+
+        assert!(!app.running);
+    }
+
+    #[test]
+    fn test_command_unknown() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        app.enter_command();
+        for c in "invalidcmd".chars() {
+            app.command_push(c);
+        }
+        app.execute_command(&db);
+
+        // Should have status message about unknown command
+        assert!(app.status_message.is_some());
+        assert!(app.status_message.as_ref().unwrap().is_error);
+    }
+
+    // ==================== Undo/Redo Tests ====================
+
+    #[test]
+    fn test_undo_selection() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        // Initial state - no selections
+        assert!(app.selected_tools.is_empty());
+
+        // Record initial empty state, then add selections
+        app.record_selection();
+        app.selected_tools.insert("tool1".to_string());
+        app.selected_tools.insert("tool2".to_string());
+
+        // Undo should restore to empty state
+        app.undo();
+        assert!(app.selected_tools.is_empty());
+    }
+
+    #[test]
+    fn test_undo_filter() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        // Set a filter and record it
+        app.search_query = "old_filter".to_string();
+        app.record_filter();
+        app.search_query = "new_filter".to_string();
+
+        // Undo should restore old filter
+        app.undo();
+        assert_eq!(app.search_query, "old_filter");
+    }
+
+    #[test]
+    fn test_redo() {
+        let db = Database::open_in_memory().unwrap();
+        let mut app = App::new(&db).unwrap();
+
+        // Set filter and record
+        app.search_query = "filter1".to_string();
+        app.record_filter();
+        app.search_query = "filter2".to_string();
+
+        // Undo
+        app.undo();
+        assert_eq!(app.search_query, "filter1");
+
+        // Redo should restore to filter2
+        app.redo();
+        assert_eq!(app.search_query, "filter2");
+    }
+
+    #[test]
+    fn test_action_history() {
+        let mut history = ActionHistory::new(3);
+
+        // Initially empty
+        assert!(!history.can_undo());
+        assert!(!history.can_redo());
+
+        // Add actions
+        history.push(UndoableAction::Filter("a".to_string()));
+        history.push(UndoableAction::Filter("b".to_string()));
+        assert!(history.can_undo());
+
+        // Pop undo
+        let action = history.pop_undo().unwrap();
+        if let UndoableAction::Filter(s) = action {
+            assert_eq!(s, "b");
+        }
+
+        // Push to redo
+        history.push_redo(UndoableAction::Filter("b".to_string()));
+        assert!(history.can_redo());
+
+        // Pop redo
+        let action = history.pop_redo().unwrap();
+        if let UndoableAction::Filter(s) = action {
+            assert_eq!(s, "b");
+        }
+    }
+
+    #[test]
+    fn test_history_max_size() {
+        let mut history = ActionHistory::new(2);
+
+        history.push(UndoableAction::Filter("a".to_string()));
+        history.push(UndoableAction::Filter("b".to_string()));
+        history.push(UndoableAction::Filter("c".to_string()));
+
+        // Should only have 2 actions (oldest removed)
+        assert!(history.can_undo());
+        let _ = history.pop_undo(); // c
+        let action = history.pop_undo(); // b
+        if let Some(UndoableAction::Filter(s)) = action {
+            assert_eq!(s, "b");
+        }
+
+        // No more undo
+        assert!(!history.can_undo());
     }
 }

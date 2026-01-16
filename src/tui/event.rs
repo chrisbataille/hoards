@@ -1,7 +1,7 @@
 //! Event handling for the TUI
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEventKind};
 use std::time::Duration;
 
 use super::app::{App, InputMode, PendingAction, Tab};
@@ -14,6 +14,7 @@ pub fn handle_events(app: &mut App, db: &Database) -> Result<()> {
     if event::poll(POLL_TIMEOUT)? {
         match event::read()? {
             Event::Key(key) => handle_key_event(app, key, db),
+            Event::Mouse(mouse) => handle_mouse_event(app, mouse, db),
             Event::Resize(_, _) => {} // Terminal will redraw automatically
             _ => {}
         }
@@ -63,6 +64,7 @@ fn handle_key_event(app: &mut App, key: KeyEvent, db: &Database) {
     match app.input_mode {
         InputMode::Normal => handle_normal_mode(app, key, db),
         InputMode::Search => handle_search_mode(app, key, db),
+        InputMode::Command => handle_command_mode(app, key, db),
     }
 }
 
@@ -125,6 +127,9 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         // Search
         KeyCode::Char('/') => app.enter_search(),
 
+        // Command palette (vim-style)
+        KeyCode::Char(':') => app.enter_command(),
+
         // Clear search filter
         KeyCode::Esc => app.clear_search(),
 
@@ -159,6 +164,10 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         // Theme cycling
         KeyCode::Char('t') => app.cycle_theme(),
 
+        // Undo/redo
+        KeyCode::Char('z') if key.modifiers.contains(KeyModifiers::CONTROL) => app.undo(),
+        KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) => app.redo(),
+
         // Refresh (check for updates on Updates tab)
         KeyCode::Char('r') => {
             if app.tab == Tab::Updates {
@@ -182,6 +191,80 @@ fn handle_search_mode(app: &mut App, key: KeyEvent, _db: &Database) {
         }
         KeyCode::Backspace => app.search_pop(),
         KeyCode::Char(c) => app.search_push(c),
+        _ => {}
+    }
+}
+
+fn handle_command_mode(app: &mut App, key: KeyEvent, db: &Database) {
+    match key.code {
+        KeyCode::Esc => app.exit_command(),
+        KeyCode::Enter => app.execute_command(db),
+        KeyCode::Backspace => {
+            if app.command_input.is_empty() {
+                app.exit_command();
+            } else {
+                app.command_pop();
+            }
+        }
+        KeyCode::Char(c) => app.command_push(c),
+        _ => {}
+    }
+}
+
+fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &Database) {
+    // Don't handle mouse during overlays or special modes
+    if app.show_help || app.show_details_popup || app.has_pending_action() {
+        return;
+    }
+
+    // Only handle mouse in normal mode
+    if app.input_mode != InputMode::Normal {
+        return;
+    }
+
+    match mouse.kind {
+        // Scroll up
+        MouseEventKind::ScrollUp => {
+            if app.tab == Tab::Bundles {
+                app.select_prev_bundle();
+            } else {
+                app.select_prev();
+            }
+        }
+        // Scroll down
+        MouseEventKind::ScrollDown => {
+            if app.tab == Tab::Bundles {
+                app.select_next_bundle();
+            } else {
+                app.select_next();
+            }
+        }
+        // Left click
+        MouseEventKind::Down(MouseButton::Left) => {
+            let x = mouse.column;
+            let y = mouse.row;
+
+            // Check if clicking in tab area
+            if app.is_in_tab_area(x, y) {
+                app.click_tab(x, db);
+                return;
+            }
+
+            // Check if clicking in list area
+            if let Some(row) = app.get_list_row(x, y) {
+                app.click_list_item(row);
+            }
+        }
+        // Right click to toggle selection
+        MouseEventKind::Down(MouseButton::Right) => {
+            let x = mouse.column;
+            let y = mouse.row;
+
+            if let Some(row) = app.get_list_row(x, y) {
+                app.click_list_item(row);
+                app.toggle_selection();
+            }
+        }
         _ => {}
     }
 }
