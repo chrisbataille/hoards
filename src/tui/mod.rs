@@ -4,9 +4,11 @@
 
 mod app;
 mod event;
+pub mod theme;
 mod ui;
 
 pub use app::App;
+pub use theme::{Theme, ThemeVariant};
 
 use anyhow::Result;
 use crossterm::{

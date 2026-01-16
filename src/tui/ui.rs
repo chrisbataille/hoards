@@ -1,38 +1,76 @@
 //! UI rendering for the TUI
 
+use chrono::{DateTime, Utc};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap},
 };
 
 use super::app::{App, InputMode, Tab};
+use super::theme::Theme;
 use crate::db::Database;
 use crate::icons::source_icon;
 
-/// Catppuccin Mocha color palette
-mod colors {
-    use ratatui::style::Color;
+/// Generate a sparkline string from usage data
+/// Uses Unicode block elements: ▁▂▃▄▅▆▇█
+fn sparkline(data: &[i64]) -> String {
+    if data.is_empty() || data.iter().all(|&x| x == 0) {
+        return "·······".to_string(); // No data indicator
+    }
 
-    pub const BASE: Color = Color::Rgb(30, 30, 46);
-    pub const SURFACE0: Color = Color::Rgb(49, 50, 68);
-    pub const SURFACE1: Color = Color::Rgb(69, 71, 90);
-    pub const TEXT: Color = Color::Rgb(205, 214, 244);
-    pub const SUBTEXT0: Color = Color::Rgb(166, 173, 200);
-    pub const BLUE: Color = Color::Rgb(137, 180, 250);
-    pub const GREEN: Color = Color::Rgb(166, 227, 161);
-    pub const YELLOW: Color = Color::Rgb(249, 226, 175);
-    pub const MAUVE: Color = Color::Rgb(203, 166, 247);
-    pub const PEACH: Color = Color::Rgb(250, 179, 135);
-    pub const TEAL: Color = Color::Rgb(148, 226, 213);
-    pub const RED: Color = Color::Rgb(243, 139, 168);
+    let max = *data.iter().max().unwrap_or(&1).max(&1);
+    let blocks = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+    data.iter()
+        .map(|&value| {
+            if value == 0 {
+                ' '
+            } else {
+                // Scale to 0-7 range
+                let idx = ((value as f64 / max as f64) * 7.0).round() as usize;
+                blocks[idx.min(7)]
+            }
+        })
+        .collect()
+}
+
+/// Determine health status based on usage recency
+/// Returns (indicator, color) tuple
+fn health_indicator(
+    last_used: Option<&str>,
+    use_count: i64,
+    theme: &Theme,
+) -> (&'static str, Color) {
+    // Parse last_used timestamp
+    let days_since_use = last_used
+        .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| {
+            let now = Utc::now();
+            let used = dt.with_timezone(&Utc);
+            (now - used).num_days()
+        });
+
+    match (use_count, days_since_use) {
+        // Never used - red
+        (0, _) => ("●", theme.red),
+        // Used within last 7 days - green
+        (_, Some(days)) if days < 7 => ("●", theme.green),
+        // Used within last 30 days - yellow
+        (_, Some(days)) if days < 30 => ("●", theme.yellow),
+        // Used but more than 30 days ago - red
+        (_, Some(_)) => ("●", theme.red),
+        // Has usage but no timestamp (legacy data) - green
+        (_, None) => ("●", theme.green),
+    }
 }
 
 /// Main render function
 pub fn render(frame: &mut Frame, app: &mut App, db: &Database) {
     let area = frame.area();
+    let theme = app.theme();
 
     // Main layout: header, body, footer
     let chunks = Layout::default()
@@ -44,38 +82,38 @@ pub fn render(frame: &mut Frame, app: &mut App, db: &Database) {
         ])
         .split(area);
 
-    render_header(frame, app, chunks[0]);
-    render_body(frame, app, db, chunks[1]);
-    render_footer(frame, app, chunks[2]);
+    render_header(frame, app, &theme, chunks[0]);
+    render_body(frame, app, db, &theme, chunks[1]);
+    render_footer(frame, app, &theme, chunks[2]);
 
     // Render overlays (in order of priority)
     if app.show_help {
-        render_help_overlay(frame, area);
+        render_help_overlay(frame, &theme, area);
     }
 
     if app.show_details_popup {
-        render_details_popup(frame, app, db, area);
+        render_details_popup(frame, app, db, &theme, area);
     }
 
     // Confirmation dialog takes highest priority
     if app.has_pending_action() {
-        render_confirmation_dialog(frame, app, area);
+        render_confirmation_dialog(frame, app, &theme, area);
     }
 
     // Loading overlay takes absolute highest priority
     if app.has_background_op() {
-        render_loading_overlay(frame, app, area);
+        render_loading_overlay(frame, app, &theme, area);
     }
 }
 
-fn render_header(frame: &mut Frame, app: &App, area: Rect) {
+fn render_header(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let titles: Vec<Line> = Tab::all()
         .iter()
         .map(|t| {
             let style = if *t == app.tab {
-                Style::default().fg(colors::BLUE).bold()
+                Style::default().fg(theme.blue).bold()
             } else {
-                Style::default().fg(colors::SUBTEXT0)
+                Style::default().fg(theme.subtext0)
             };
             Line::from(Span::styled(format!(" {} ", t.title()), style))
         })
@@ -85,19 +123,19 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::SURFACE1))
+                .border_style(Style::default().fg(theme.surface1))
                 .title(Span::styled(
                     " hoard ",
-                    Style::default().fg(colors::MAUVE).bold(),
+                    Style::default().fg(theme.mauve).bold(),
                 )),
         )
-        .highlight_style(Style::default().fg(colors::BLUE))
+        .highlight_style(Style::default().fg(theme.blue))
         .select(app.tab.index());
 
     frame.render_widget(tabs, area);
 }
 
-fn render_body(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
+fn render_body(frame: &mut Frame, app: &mut App, db: &Database, theme: &Theme, area: Rect) {
     // Responsive layout: side-by-side for wide terminals, stacked for narrow
     let min_width_for_split = 80;
 
@@ -109,10 +147,10 @@ fn render_body(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
                 .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
                 .split(area);
 
-            render_bundle_list(frame, app, chunks[0]);
-            render_bundle_details(frame, app, db, chunks[1]);
+            render_bundle_list(frame, app, theme, chunks[0]);
+            render_bundle_details(frame, app, db, theme, chunks[1]);
         } else {
-            render_bundle_list(frame, app, area);
+            render_bundle_list(frame, app, theme, area);
         }
         return;
     }
@@ -124,15 +162,15 @@ fn render_body(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
             .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(area);
 
-        render_tool_list(frame, app, chunks[0]);
-        render_details(frame, app, db, chunks[1]);
+        render_tool_list(frame, app, theme, chunks[0]);
+        render_details(frame, app, db, theme, chunks[1]);
     } else {
         // Narrow terminal: list only (details on Enter in future)
-        render_tool_list(frame, app, area);
+        render_tool_list(frame, app, theme, area);
     }
 }
 
-fn render_tool_list(frame: &mut Frame, app: &App, area: Rect) {
+fn render_tool_list(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     // Special handling for Updates tab when not checked yet
     if app.tab == super::app::Tab::Updates && !app.updates_checked {
         let message = if app.updates_loading {
@@ -141,13 +179,13 @@ fn render_tool_list(frame: &mut Frame, app: &App, area: Rect) {
             "Press 'r' to check for updates"
         };
         let paragraph = Paragraph::new(message)
-            .style(Style::default().fg(colors::SUBTEXT0))
+            .style(Style::default().fg(theme.subtext0))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(colors::SURFACE1))
-                    .title(Span::styled(" Updates ", Style::default().fg(colors::TEXT))),
+                    .border_style(Style::default().fg(theme.surface1))
+                    .title(Span::styled(" Updates ", Style::default().fg(theme.text))),
             );
         frame.render_widget(paragraph, area);
         return;
@@ -161,58 +199,85 @@ fn render_tool_list(frame: &mut Frame, app: &App, area: Rect) {
             // Selection checkbox
             let selected = app.is_selected(&tool.name);
             let checkbox = if selected { "☑" } else { "☐" };
-            let checkbox_color = if selected {
-                colors::BLUE
-            } else {
-                colors::SURFACE1
-            };
+            let checkbox_color = if selected { theme.blue } else { theme.surface1 };
 
             // Source icon
             let src_icon = source_icon(&tool.source.to_string());
 
             // For Updates tab, show version info instead of usage
-            let extra_info = if app.tab == super::app::Tab::Updates {
-                if let Some(update) = app.get_update(&tool.name) {
+            let (extra_info, spark) = if app.tab == super::app::Tab::Updates {
+                let info = if let Some(update) = app.get_update(&tool.name) {
                     format!(" {} → {}", update.current, update.latest)
                 } else {
                     String::new()
-                }
+                };
+                (info, String::new())
             } else {
-                // Usage count for other tabs
+                // Usage count and sparkline for other tabs
                 let usage = app.get_usage(&tool.name).map(|u| u.use_count).unwrap_or(0);
-                if usage > 0 {
+                let daily = app.daily_usage.get(&tool.name);
+                let spark_str = daily.map(|d| sparkline(d)).unwrap_or_default();
+                let info = if usage > 0 {
                     format!(" ({usage})")
                 } else {
                     String::new()
-                }
+                };
+                (info, spark_str)
             };
 
-            // Status indicator
+            // Status indicator based on health
             let (status, status_color) = if app.tab == super::app::Tab::Updates {
                 // Show update indicator for Updates tab
-                ("↑", colors::YELLOW)
-            } else if tool.is_installed {
-                ("●", colors::GREEN)
+                ("↑", theme.yellow)
+            } else if !tool.is_installed {
+                // Not installed - hollow circle
+                ("○", theme.subtext0)
             } else {
-                ("○", colors::SUBTEXT0)
+                // Use health indicator based on usage recency
+                let usage = app.get_usage(&tool.name);
+                let use_count = usage.as_ref().map(|u| u.use_count).unwrap_or(0);
+                let last_used = usage.as_ref().and_then(|u| u.last_used.as_deref());
+                health_indicator(last_used, use_count, theme)
             };
 
             let extra_color = if app.tab == super::app::Tab::Updates {
-                colors::YELLOW
+                theme.yellow
             } else {
-                colors::SUBTEXT0
+                theme.subtext0
             };
+
+            // Build sparkline span (show only if not empty)
+            let spark_span = if spark.is_empty() {
+                Span::raw("")
+            } else {
+                Span::styled(format!(" {spark}"), Style::default().fg(theme.teal))
+            };
+
+            // GitHub stars (show compact format if available)
+            let stars_span = app
+                .github_cache
+                .get(&tool.name)
+                .filter(|gh| gh.stars > 0)
+                .map(|gh| {
+                    Span::styled(
+                        format!(" ★{}", format_stars(gh.stars)),
+                        Style::default().fg(theme.yellow),
+                    )
+                })
+                .unwrap_or_else(|| Span::raw(""));
 
             let content = Line::from(vec![
                 Span::styled(format!("{checkbox} "), Style::default().fg(checkbox_color)),
                 Span::styled(format!("{src_icon} "), Style::default()),
                 Span::styled(format!("{status} "), Style::default().fg(status_color)),
-                Span::styled(&tool.name, Style::default().fg(colors::TEXT)),
+                Span::styled(&tool.name, Style::default().fg(theme.text)),
+                stars_span,
                 Span::styled(extra_info, Style::default().fg(extra_color)),
+                spark_span,
             ]);
 
             let style = if i == app.selected_index {
-                Style::default().bg(colors::SURFACE0)
+                Style::default().bg(theme.surface0)
             } else {
                 Style::default()
             };
@@ -243,12 +308,12 @@ fn render_tool_list(frame: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::SURFACE1))
-                .title(Span::styled(title_text, Style::default().fg(colors::TEXT))),
+                .border_style(Style::default().fg(theme.surface1))
+                .title(Span::styled(title_text, Style::default().fg(theme.text))),
         )
         .highlight_style(
             Style::default()
-                .bg(colors::SURFACE0)
+                .bg(theme.surface0)
                 .add_modifier(Modifier::BOLD),
         );
 
@@ -264,7 +329,7 @@ fn render_tool_list(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
+fn render_details(frame: &mut Frame, app: &mut App, db: &Database, theme: &Theme, area: Rect) {
     // Clone selected tool to avoid borrow issues
     let tool = app.selected_tool().cloned();
 
@@ -274,8 +339,8 @@ fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
 
         let mut lines = vec![
             Line::from(vec![
-                Span::styled("Name: ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(tool.name.clone(), Style::default().fg(colors::BLUE).bold()),
+                Span::styled("Name: ", Style::default().fg(theme.subtext0)),
+                Span::styled(tool.name.clone(), Style::default().fg(theme.blue).bold()),
             ]),
             Line::from(""),
         ];
@@ -284,11 +349,11 @@ fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
         if let Some(desc) = &tool.description {
             lines.push(Line::from(Span::styled(
                 "Description:",
-                Style::default().fg(colors::SUBTEXT0),
+                Style::default().fg(theme.subtext0),
             )));
             lines.push(Line::from(Span::styled(
                 desc.clone(),
-                Style::default().fg(colors::TEXT),
+                Style::default().fg(theme.text),
             )));
             lines.push(Line::from(""));
         }
@@ -296,33 +361,33 @@ fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
         // Source and install command
         let src_icon = source_icon(&tool.source.to_string());
         lines.push(Line::from(vec![
-            Span::styled("Source: ", Style::default().fg(colors::SUBTEXT0)),
+            Span::styled("Source: ", Style::default().fg(theme.subtext0)),
             Span::styled(
                 format!("{src_icon} {}", tool.source),
-                Style::default().fg(colors::PEACH),
+                Style::default().fg(theme.peach),
             ),
         ]));
 
         if let Some(cmd) = &tool.install_command {
             lines.push(Line::from(vec![
-                Span::styled("Install: ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(cmd.clone(), Style::default().fg(colors::GREEN)),
+                Span::styled("Install: ", Style::default().fg(theme.subtext0)),
+                Span::styled(cmd.clone(), Style::default().fg(theme.green)),
             ]));
         }
 
         // Binary name
         if let Some(binary) = &tool.binary_name {
             lines.push(Line::from(vec![
-                Span::styled("Binary: ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(binary.clone(), Style::default().fg(colors::TEXT)),
+                Span::styled("Binary: ", Style::default().fg(theme.subtext0)),
+                Span::styled(binary.clone(), Style::default().fg(theme.text)),
             ]));
         }
 
         // Category
         if let Some(category) = &tool.category {
             lines.push(Line::from(vec![
-                Span::styled("Category: ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(category.clone(), Style::default().fg(colors::MAUVE)),
+                Span::styled("Category: ", Style::default().fg(theme.subtext0)),
+                Span::styled(category.clone(), Style::default().fg(theme.mauve)),
             ]));
         }
 
@@ -333,20 +398,20 @@ fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
             lines.push(Line::from(Span::styled(
                 "Usage:",
                 Style::default()
-                    .fg(colors::SUBTEXT0)
+                    .fg(theme.subtext0)
                     .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(vec![
-                Span::styled("  Invocations: ", Style::default().fg(colors::SUBTEXT0)),
+                Span::styled("  Invocations: ", Style::default().fg(theme.subtext0)),
                 Span::styled(
                     format!("{}", usage.use_count),
-                    Style::default().fg(colors::TEAL),
+                    Style::default().fg(theme.teal),
                 ),
             ]));
             if let Some(last) = &usage.last_used {
                 lines.push(Line::from(vec![
-                    Span::styled("  Last used: ", Style::default().fg(colors::SUBTEXT0)),
-                    Span::styled(last.clone(), Style::default().fg(colors::TEXT)),
+                    Span::styled("  Last used: ", Style::default().fg(theme.subtext0)),
+                    Span::styled(last.clone(), Style::default().fg(theme.text)),
                 ]));
             }
             lines.push(Line::from(""));
@@ -357,49 +422,73 @@ fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
             lines.push(Line::from(Span::styled(
                 "GitHub:",
                 Style::default()
-                    .fg(colors::SUBTEXT0)
+                    .fg(theme.subtext0)
                     .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(vec![
-                Span::styled("  ★ Stars: ", Style::default().fg(colors::YELLOW)),
-                Span::styled(format_stars(gh.stars), Style::default().fg(colors::YELLOW)),
+                Span::styled("  ★ Stars: ", Style::default().fg(theme.yellow)),
+                Span::styled(format_stars(gh.stars), Style::default().fg(theme.yellow)),
             ]));
             if let Some(lang) = &gh.language {
                 lines.push(Line::from(vec![
-                    Span::styled("  Language: ", Style::default().fg(colors::SUBTEXT0)),
-                    Span::styled(lang.clone(), Style::default().fg(colors::PEACH)),
+                    Span::styled("  Language: ", Style::default().fg(theme.subtext0)),
+                    Span::styled(lang.clone(), Style::default().fg(theme.peach)),
                 ]));
             }
             lines.push(Line::from(vec![
-                Span::styled("  Repo: ", Style::default().fg(colors::SUBTEXT0)),
+                Span::styled("  Repo: ", Style::default().fg(theme.subtext0)),
                 Span::styled(
                     format!("{}/{}", gh.repo_owner, gh.repo_name),
-                    Style::default().fg(colors::BLUE),
+                    Style::default().fg(theme.blue),
                 ),
             ]));
             lines.push(Line::from(""));
         }
 
-        // Status
-        let status_text = if tool.is_installed {
-            "Installed"
+        // Status with health indicator
+        let (status_text, status_color, health_hint) = if !tool.is_installed {
+            ("Not installed", theme.yellow, None)
         } else {
-            "Not installed"
-        };
-        let status_color = if tool.is_installed {
-            colors::GREEN
-        } else {
-            colors::YELLOW
+            let usage = app.usage_data.get(&tool.name);
+            let use_count = usage.map(|u| u.use_count).unwrap_or(0);
+            let last_used = usage.and_then(|u| u.last_used.as_deref());
+
+            // Calculate days since use
+            let days_since = last_used
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| (Utc::now() - dt.with_timezone(&Utc)).num_days());
+
+            match (use_count, days_since) {
+                (0, _) => (
+                    "Installed (never used)",
+                    theme.red,
+                    Some("Consider using or removing"),
+                ),
+                (_, Some(d)) if d < 7 => ("Installed (active)", theme.green, None),
+                (_, Some(d)) if d < 30 => (
+                    "Installed (idle)",
+                    theme.yellow,
+                    Some(&format!("Last used {} days ago", d) as &str).map(|_| "Not used recently"),
+                ),
+                (_, Some(_)) => ("Installed (stale)", theme.red, Some("Not used in 30+ days")),
+                (_, None) => ("Installed", theme.green, None),
+            }
         };
         lines.push(Line::from(vec![
-            Span::styled("Status: ", Style::default().fg(colors::SUBTEXT0)),
+            Span::styled("Status: ", Style::default().fg(theme.subtext0)),
             Span::styled(status_text, Style::default().fg(status_color)),
         ]));
+        if let Some(hint) = health_hint {
+            lines.push(Line::from(Span::styled(
+                format!("  ↳ {hint}"),
+                Style::default().fg(theme.subtext0),
+            )));
+        }
 
         if tool.is_favorite {
             lines.push(Line::from(Span::styled(
                 "★ Favorite",
-                Style::default().fg(colors::YELLOW),
+                Style::default().fg(theme.yellow),
             )));
         }
 
@@ -407,7 +496,7 @@ fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
     } else {
         Text::from(Span::styled(
             "No tool selected",
-            Style::default().fg(colors::SUBTEXT0),
+            Style::default().fg(theme.subtext0),
         ))
     };
 
@@ -415,8 +504,8 @@ fn render_details(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::SURFACE1))
-                .title(Span::styled(" Details ", Style::default().fg(colors::TEXT))),
+                .border_style(Style::default().fg(theme.surface1))
+                .title(Span::styled(" Details ", Style::default().fg(theme.text))),
         )
         .wrap(Wrap { trim: true });
 
@@ -432,18 +521,18 @@ fn format_stars(stars: i64) -> String {
     }
 }
 
-fn render_bundle_list(frame: &mut Frame, app: &App, area: Rect) {
+fn render_bundle_list(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     if app.bundles.is_empty() {
         let message =
             "No bundles yet. Create one with: hoards bundle create <name> --tools tool1,tool2";
         let paragraph = Paragraph::new(message)
-            .style(Style::default().fg(colors::SUBTEXT0))
+            .style(Style::default().fg(theme.subtext0))
             .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(colors::SURFACE1))
-                    .title(Span::styled(" Bundles ", Style::default().fg(colors::TEXT))),
+                    .border_style(Style::default().fg(theme.surface1))
+                    .title(Span::styled(" Bundles ", Style::default().fg(theme.text))),
             );
         frame.render_widget(paragraph, area);
         return;
@@ -463,15 +552,15 @@ fn render_bundle_list(frame: &mut Frame, app: &App, area: Rect) {
 
             let content = Line::from(vec![
                 Span::styled("📦 ", Style::default()),
-                Span::styled(&bundle.name, Style::default().fg(colors::TEXT).bold()),
+                Span::styled(&bundle.name, Style::default().fg(theme.text).bold()),
                 Span::styled(
                     format!(" ({})", count_str),
-                    Style::default().fg(colors::SUBTEXT0),
+                    Style::default().fg(theme.subtext0),
                 ),
             ]);
 
             let style = if i == app.bundle_selected {
-                Style::default().bg(colors::SURFACE0)
+                Style::default().bg(theme.surface0)
             } else {
                 Style::default()
             };
@@ -486,12 +575,12 @@ fn render_bundle_list(frame: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::SURFACE1))
-                .title(Span::styled(title, Style::default().fg(colors::TEXT))),
+                .border_style(Style::default().fg(theme.surface1))
+                .title(Span::styled(title, Style::default().fg(theme.text))),
         )
         .highlight_style(
             Style::default()
-                .bg(colors::SURFACE0)
+                .bg(theme.surface0)
                 .add_modifier(Modifier::BOLD),
         );
 
@@ -501,13 +590,13 @@ fn render_bundle_list(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, area: Rect) {
+fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, theme: &Theme, area: Rect) {
     let content = if let Some(bundle) = app.bundles.get(app.bundle_selected) {
         let mut lines = vec![
             Line::from(Span::styled(
                 &bundle.name,
                 Style::default()
-                    .fg(colors::BLUE)
+                    .fg(theme.blue)
                     .bold()
                     .add_modifier(Modifier::UNDERLINED),
             )),
@@ -518,17 +607,17 @@ fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, area: Rect
         if let Some(desc) = &bundle.description {
             lines.push(Line::from(Span::styled(
                 desc.clone(),
-                Style::default().fg(colors::TEXT),
+                Style::default().fg(theme.text),
             )));
             lines.push(Line::from(""));
         }
 
         // Tool count
         lines.push(Line::from(vec![
-            Span::styled("Tools: ", Style::default().fg(colors::SUBTEXT0)),
+            Span::styled("Tools: ", Style::default().fg(theme.subtext0)),
             Span::styled(
                 format!("{}", bundle.tools.len()),
-                Style::default().fg(colors::TEAL),
+                Style::default().fg(theme.teal),
             ),
         ]));
         lines.push(Line::from(""));
@@ -536,7 +625,7 @@ fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, area: Rect
         // List tools with installation status
         lines.push(Line::from(Span::styled(
             "─── Contents ───",
-            Style::default().fg(colors::SURFACE1),
+            Style::default().fg(theme.surface1),
         )));
 
         for tool_name in &bundle.tools {
@@ -549,14 +638,14 @@ fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, area: Rect
                 .unwrap_or(false);
 
             let (status, status_color) = if is_installed {
-                ("●", colors::GREEN)
+                ("●", theme.green)
             } else {
-                ("○", colors::SUBTEXT0)
+                ("○", theme.subtext0)
             };
 
             lines.push(Line::from(vec![
                 Span::styled(format!("  {} ", status), Style::default().fg(status_color)),
-                Span::styled(tool_name.clone(), Style::default().fg(colors::TEXT)),
+                Span::styled(tool_name.clone(), Style::default().fg(theme.text)),
             ]));
         }
 
@@ -581,12 +670,12 @@ fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, area: Rect
                     "Press 'i' to install {} missing tool(s)",
                     not_installed.len()
                 ),
-                Style::default().fg(colors::GREEN),
+                Style::default().fg(theme.green),
             )));
         } else {
             lines.push(Line::from(Span::styled(
                 "All tools installed ✓",
-                Style::default().fg(colors::GREEN),
+                Style::default().fg(theme.green),
             )));
         }
 
@@ -599,10 +688,10 @@ fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, area: Rect
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::SURFACE1))
+                .border_style(Style::default().fg(theme.surface1))
                 .title(Span::styled(
                     " Bundle Details ",
-                    Style::default().fg(colors::TEXT),
+                    Style::default().fg(theme.text),
                 )),
         )
         .wrap(Wrap { trim: true });
@@ -610,19 +699,19 @@ fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, area: Rect
     frame.render_widget(details, area);
 }
 
-fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
+fn render_footer(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     // Show status message if present (takes priority)
     if let Some(status) = &app.status_message {
         let color = if status.is_error {
-            colors::RED
+            theme.red
         } else {
-            colors::GREEN
+            theme.green
         };
         let footer = Paragraph::new(Line::from(vec![
             Span::styled(" ", Style::default()),
             Span::styled(&status.text, Style::default().fg(color)),
         ]))
-        .style(Style::default().bg(colors::SURFACE0));
+        .style(Style::default().bg(theme.surface0));
 
         frame.render_widget(footer, area);
         return;
@@ -631,33 +720,33 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
     let mode_text = match app.input_mode {
         InputMode::Normal => {
             let mut spans = vec![
-                Span::styled(" j/k", Style::default().fg(colors::BLUE)),
-                Span::styled(" nav ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(" Space", Style::default().fg(colors::BLUE)),
-                Span::styled(" select ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(" i", Style::default().fg(colors::GREEN)),
-                Span::styled(" install ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(" D", Style::default().fg(colors::RED)),
-                Span::styled(" uninstall ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(" u", Style::default().fg(colors::YELLOW)),
-                Span::styled(" update ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(" ?", Style::default().fg(colors::BLUE)),
-                Span::styled(" help", Style::default().fg(colors::SUBTEXT0)),
+                Span::styled(" j/k", Style::default().fg(theme.blue)),
+                Span::styled(" nav ", Style::default().fg(theme.subtext0)),
+                Span::styled(" Space", Style::default().fg(theme.blue)),
+                Span::styled(" select ", Style::default().fg(theme.subtext0)),
+                Span::styled(" i", Style::default().fg(theme.green)),
+                Span::styled(" install ", Style::default().fg(theme.subtext0)),
+                Span::styled(" D", Style::default().fg(theme.red)),
+                Span::styled(" uninstall ", Style::default().fg(theme.subtext0)),
+                Span::styled(" u", Style::default().fg(theme.yellow)),
+                Span::styled(" update ", Style::default().fg(theme.subtext0)),
+                Span::styled(" ?", Style::default().fg(theme.blue)),
+                Span::styled(" help", Style::default().fg(theme.subtext0)),
             ];
 
             // Show selection count or filter
             if app.selection_count() > 0 {
-                spans.push(Span::styled(" │ ", Style::default().fg(colors::SURFACE1)));
+                spans.push(Span::styled(" │ ", Style::default().fg(theme.surface1)));
                 spans.push(Span::styled(
                     format!("{} selected", app.selection_count()),
-                    Style::default().fg(colors::BLUE),
+                    Style::default().fg(theme.blue),
                 ));
             } else if !app.search_query.is_empty() {
-                spans.push(Span::styled(" │ ", Style::default().fg(colors::SURFACE1)));
-                spans.push(Span::styled("filter:", Style::default().fg(colors::YELLOW)));
+                spans.push(Span::styled(" │ ", Style::default().fg(theme.surface1)));
+                spans.push(Span::styled("filter:", Style::default().fg(theme.yellow)));
                 spans.push(Span::styled(
                     &app.search_query,
-                    Style::default().fg(colors::TEXT),
+                    Style::default().fg(theme.text),
                 ));
             }
 
@@ -665,146 +754,150 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         }
         InputMode::Search => {
             vec![
-                Span::styled(" Search: ", Style::default().fg(colors::YELLOW)),
-                Span::styled(&app.search_query, Style::default().fg(colors::TEXT)),
-                Span::styled("│", Style::default().fg(colors::BLUE)), // Cursor
-                Span::styled("  Enter", Style::default().fg(colors::BLUE)),
-                Span::styled(" apply ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(" Esc", Style::default().fg(colors::BLUE)),
-                Span::styled(" cancel", Style::default().fg(colors::SUBTEXT0)),
+                Span::styled(" Search: ", Style::default().fg(theme.yellow)),
+                Span::styled(&app.search_query, Style::default().fg(theme.text)),
+                Span::styled("│", Style::default().fg(theme.blue)), // Cursor
+                Span::styled("  Enter", Style::default().fg(theme.blue)),
+                Span::styled(" apply ", Style::default().fg(theme.subtext0)),
+                Span::styled(" Esc", Style::default().fg(theme.blue)),
+                Span::styled(" cancel", Style::default().fg(theme.subtext0)),
             ]
         }
     };
 
-    let footer = Paragraph::new(Line::from(mode_text)).style(Style::default().bg(colors::SURFACE0));
+    let footer = Paragraph::new(Line::from(mode_text)).style(Style::default().bg(theme.surface0));
 
     frame.render_widget(footer, area);
 }
 
-fn render_help_overlay(frame: &mut Frame, area: Rect) {
+fn render_help_overlay(frame: &mut Frame, theme: &Theme, area: Rect) {
     // Center the help popup
     let popup_area = centered_rect(60, 80, area);
 
     let help_text = vec![
         Line::from(Span::styled(
             "Keyboard Shortcuts",
-            Style::default().fg(colors::MAUVE).bold(),
+            Style::default().fg(theme.mauve).bold(),
         )),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Navigation",
-            Style::default().fg(colors::BLUE).bold(),
+            Style::default().fg(theme.blue).bold(),
         )]),
         Line::from(vec![
-            Span::styled("  j/↓      ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Move down", Style::default().fg(colors::TEXT)),
+            Span::styled("  j/↓      ", Style::default().fg(theme.yellow)),
+            Span::styled("Move down", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  k/↑      ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Move up", Style::default().fg(colors::TEXT)),
+            Span::styled("  k/↑      ", Style::default().fg(theme.yellow)),
+            Span::styled("Move up", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  g        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Go to top", Style::default().fg(colors::TEXT)),
+            Span::styled("  g        ", Style::default().fg(theme.yellow)),
+            Span::styled("Go to top", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  G        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Go to bottom", Style::default().fg(colors::TEXT)),
+            Span::styled("  G        ", Style::default().fg(theme.yellow)),
+            Span::styled("Go to bottom", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+d   ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Page down", Style::default().fg(colors::TEXT)),
+            Span::styled("  Ctrl+d   ", Style::default().fg(theme.yellow)),
+            Span::styled("Page down", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+u   ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Page up", Style::default().fg(colors::TEXT)),
+            Span::styled("  Ctrl+u   ", Style::default().fg(theme.yellow)),
+            Span::styled("Page up", Style::default().fg(theme.text)),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Tabs",
-            Style::default().fg(colors::BLUE).bold(),
+            Style::default().fg(theme.blue).bold(),
         )]),
         Line::from(vec![
-            Span::styled("  1-4      ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Switch to tab", Style::default().fg(colors::TEXT)),
+            Span::styled("  1-4      ", Style::default().fg(theme.yellow)),
+            Span::styled("Switch to tab", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  Tab/]    ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Next tab", Style::default().fg(colors::TEXT)),
+            Span::styled("  Tab/]    ", Style::default().fg(theme.yellow)),
+            Span::styled("Next tab", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  S-Tab/[  ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Previous tab", Style::default().fg(colors::TEXT)),
+            Span::styled("  S-Tab/[  ", Style::default().fg(theme.yellow)),
+            Span::styled("Previous tab", Style::default().fg(theme.text)),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Selection",
-            Style::default().fg(colors::BLUE).bold(),
+            Style::default().fg(theme.blue).bold(),
         )]),
         Line::from(vec![
-            Span::styled("  Space    ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Toggle selection", Style::default().fg(colors::TEXT)),
+            Span::styled("  Space    ", Style::default().fg(theme.yellow)),
+            Span::styled("Toggle selection", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  Ctrl+a   ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Select all", Style::default().fg(colors::TEXT)),
+            Span::styled("  Ctrl+a   ", Style::default().fg(theme.yellow)),
+            Span::styled("Select all", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  x        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Clear selection", Style::default().fg(colors::TEXT)),
+            Span::styled("  x        ", Style::default().fg(theme.yellow)),
+            Span::styled("Clear selection", Style::default().fg(theme.text)),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(
             "Actions",
-            Style::default().fg(colors::BLUE).bold(),
+            Style::default().fg(theme.blue).bold(),
         )]),
         Line::from(vec![
-            Span::styled("  i        ", Style::default().fg(colors::GREEN)),
-            Span::styled("Install tool(s)", Style::default().fg(colors::TEXT)),
+            Span::styled("  i        ", Style::default().fg(theme.green)),
+            Span::styled("Install tool(s)", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  D        ", Style::default().fg(colors::RED)),
-            Span::styled("Uninstall tool(s)", Style::default().fg(colors::TEXT)),
+            Span::styled("  D        ", Style::default().fg(theme.red)),
+            Span::styled("Uninstall tool(s)", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  u        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Update tool(s)", Style::default().fg(colors::TEXT)),
+            Span::styled("  u        ", Style::default().fg(theme.yellow)),
+            Span::styled("Update tool(s)", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  Enter    ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Show details popup", Style::default().fg(colors::TEXT)),
+            Span::styled("  Enter    ", Style::default().fg(theme.yellow)),
+            Span::styled("Show details popup", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  /        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Search/filter tools", Style::default().fg(colors::TEXT)),
+            Span::styled("  /        ", Style::default().fg(theme.yellow)),
+            Span::styled("Search/filter tools", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  s        ", Style::default().fg(colors::YELLOW)),
+            Span::styled("  s        ", Style::default().fg(theme.yellow)),
             Span::styled(
                 "Cycle sort (name/usage/recent)",
-                Style::default().fg(colors::TEXT),
+                Style::default().fg(theme.text),
             ),
         ]),
         Line::from(vec![
-            Span::styled("  Esc      ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Clear search filter", Style::default().fg(colors::TEXT)),
+            Span::styled("  Esc      ", Style::default().fg(theme.yellow)),
+            Span::styled("Clear search filter", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  r        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Refresh list", Style::default().fg(colors::TEXT)),
+            Span::styled("  r        ", Style::default().fg(theme.yellow)),
+            Span::styled("Refresh list", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  ?        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Toggle help", Style::default().fg(colors::TEXT)),
+            Span::styled("  t        ", Style::default().fg(theme.teal)),
+            Span::styled("Cycle theme", Style::default().fg(theme.text)),
         ]),
         Line::from(vec![
-            Span::styled("  q        ", Style::default().fg(colors::YELLOW)),
-            Span::styled("Quit", Style::default().fg(colors::TEXT)),
+            Span::styled("  ?        ", Style::default().fg(theme.yellow)),
+            Span::styled("Toggle help", Style::default().fg(theme.text)),
+        ]),
+        Line::from(vec![
+            Span::styled("  q        ", Style::default().fg(theme.yellow)),
+            Span::styled("Quit", Style::default().fg(theme.text)),
         ]),
         Line::from(""),
         Line::from(Span::styled(
             "Press ? or Esc to close",
-            Style::default().fg(colors::SUBTEXT0),
+            Style::default().fg(theme.subtext0),
         )),
     ];
 
@@ -812,12 +905,12 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::MAUVE))
+                .border_style(Style::default().fg(theme.mauve))
                 .title(Span::styled(
                     " Help ",
-                    Style::default().fg(colors::MAUVE).bold(),
+                    Style::default().fg(theme.mauve).bold(),
                 ))
-                .style(Style::default().bg(colors::BASE)),
+                .style(Style::default().bg(theme.base)),
         )
         .wrap(Wrap { trim: true });
 
@@ -825,7 +918,13 @@ fn render_help_overlay(frame: &mut Frame, area: Rect) {
     frame.render_widget(help, popup_area);
 }
 
-fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: Rect) {
+fn render_details_popup(
+    frame: &mut Frame,
+    app: &mut App,
+    db: &Database,
+    theme: &Theme,
+    area: Rect,
+) {
     let popup_area = centered_rect(70, 80, area);
 
     let content = if let Some(tool) = app.selected_tool().cloned() {
@@ -836,7 +935,7 @@ fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: R
             Line::from(Span::styled(
                 tool.name.clone(),
                 Style::default()
-                    .fg(colors::BLUE)
+                    .fg(theme.blue)
                     .bold()
                     .add_modifier(Modifier::UNDERLINED),
             )),
@@ -847,7 +946,7 @@ fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: R
         if let Some(desc) = &tool.description {
             lines.push(Line::from(Span::styled(
                 desc.clone(),
-                Style::default().fg(colors::TEXT),
+                Style::default().fg(theme.text),
             )));
             lines.push(Line::from(""));
         }
@@ -855,31 +954,31 @@ fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: R
         // Source and install
         let src_icon = source_icon(&tool.source.to_string());
         lines.push(Line::from(vec![
-            Span::styled("Source: ", Style::default().fg(colors::SUBTEXT0)),
+            Span::styled("Source: ", Style::default().fg(theme.subtext0)),
             Span::styled(
                 format!("{src_icon} {}", tool.source),
-                Style::default().fg(colors::PEACH),
+                Style::default().fg(theme.peach),
             ),
         ]));
 
         if let Some(cmd) = &tool.install_command {
             lines.push(Line::from(vec![
-                Span::styled("Install: ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(cmd.clone(), Style::default().fg(colors::GREEN)),
+                Span::styled("Install: ", Style::default().fg(theme.subtext0)),
+                Span::styled(cmd.clone(), Style::default().fg(theme.green)),
             ]));
         }
 
         if let Some(binary) = &tool.binary_name {
             lines.push(Line::from(vec![
-                Span::styled("Binary: ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(binary.clone(), Style::default().fg(colors::TEXT)),
+                Span::styled("Binary: ", Style::default().fg(theme.subtext0)),
+                Span::styled(binary.clone(), Style::default().fg(theme.text)),
             ]));
         }
 
         if let Some(category) = &tool.category {
             lines.push(Line::from(vec![
-                Span::styled("Category: ", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(category.clone(), Style::default().fg(colors::MAUVE)),
+                Span::styled("Category: ", Style::default().fg(theme.subtext0)),
+                Span::styled(category.clone(), Style::default().fg(theme.mauve)),
             ]));
         }
 
@@ -888,16 +987,16 @@ fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: R
         // Usage
         if let Some(usage) = app.usage_data.get(&tool.name) {
             lines.push(Line::from(vec![
-                Span::styled("Usage: ", Style::default().fg(colors::SUBTEXT0)),
+                Span::styled("Usage: ", Style::default().fg(theme.subtext0)),
                 Span::styled(
                     format!("{} invocations", usage.use_count),
-                    Style::default().fg(colors::TEAL),
+                    Style::default().fg(theme.teal),
                 ),
             ]));
             if let Some(last) = &usage.last_used {
                 lines.push(Line::from(vec![
-                    Span::styled("Last used: ", Style::default().fg(colors::SUBTEXT0)),
-                    Span::styled(last.clone(), Style::default().fg(colors::TEXT)),
+                    Span::styled("Last used: ", Style::default().fg(theme.subtext0)),
+                    Span::styled(last.clone(), Style::default().fg(theme.text)),
                 ]));
             }
         }
@@ -905,19 +1004,19 @@ fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: R
         // GitHub
         if let Some(gh) = app.github_cache.get(&tool.name) {
             lines.push(Line::from(vec![
-                Span::styled("★ Stars: ", Style::default().fg(colors::YELLOW)),
-                Span::styled(format_stars(gh.stars), Style::default().fg(colors::YELLOW)),
+                Span::styled("★ Stars: ", Style::default().fg(theme.yellow)),
+                Span::styled(format_stars(gh.stars), Style::default().fg(theme.yellow)),
                 Span::styled("  ", Style::default()),
-                Span::styled(&gh.repo_owner, Style::default().fg(colors::SUBTEXT0)),
-                Span::styled("/", Style::default().fg(colors::SUBTEXT0)),
-                Span::styled(&gh.repo_name, Style::default().fg(colors::BLUE)),
+                Span::styled(&gh.repo_owner, Style::default().fg(theme.subtext0)),
+                Span::styled("/", Style::default().fg(theme.subtext0)),
+                Span::styled(&gh.repo_name, Style::default().fg(theme.blue)),
             ]));
         }
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             "Press Enter or Esc to close",
-            Style::default().fg(colors::SUBTEXT0),
+            Style::default().fg(theme.subtext0),
         )));
 
         Text::from(lines)
@@ -929,12 +1028,12 @@ fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: R
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::BLUE))
+                .border_style(Style::default().fg(theme.blue))
                 .title(Span::styled(
                     " Details ",
-                    Style::default().fg(colors::BLUE).bold(),
+                    Style::default().fg(theme.blue).bold(),
                 ))
-                .style(Style::default().bg(colors::BASE)),
+                .style(Style::default().bg(theme.base)),
         )
         .wrap(Wrap { trim: true });
 
@@ -942,7 +1041,7 @@ fn render_details_popup(frame: &mut Frame, app: &mut App, db: &Database, area: R
     frame.render_widget(popup, popup_area);
 }
 
-fn render_loading_overlay(frame: &mut Frame, app: &App, area: Rect) {
+fn render_loading_overlay(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let popup_area = centered_rect(50, 30, area);
 
     let title = app
@@ -973,12 +1072,12 @@ fn render_loading_overlay(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(""),
         Line::from(Span::styled(
             &progress.step_name,
-            Style::default().fg(colors::BLUE).bold(),
+            Style::default().fg(theme.blue).bold(),
         )),
         Line::from(""),
         Line::from(Span::styled(
             progress_bar,
-            Style::default().fg(colors::YELLOW),
+            Style::default().fg(theme.yellow),
         )),
         Line::from(""),
     ];
@@ -986,10 +1085,10 @@ fn render_loading_overlay(frame: &mut Frame, app: &App, area: Rect) {
     // Show found count if any
     if progress.found_count > 0 {
         lines.push(Line::from(vec![
-            Span::styled("Found: ", Style::default().fg(colors::SUBTEXT0)),
+            Span::styled("Found: ", Style::default().fg(theme.subtext0)),
             Span::styled(
                 format!("{} update(s)", progress.found_count),
-                Style::default().fg(colors::GREEN),
+                Style::default().fg(theme.green),
             ),
         ]));
         lines.push(Line::from(""));
@@ -997,7 +1096,7 @@ fn render_loading_overlay(frame: &mut Frame, app: &App, area: Rect) {
 
     lines.push(Line::from(Span::styled(
         "Please wait...",
-        Style::default().fg(colors::SUBTEXT0),
+        Style::default().fg(theme.subtext0),
     )));
 
     let content = Text::from(lines);
@@ -1006,12 +1105,12 @@ fn render_loading_overlay(frame: &mut Frame, app: &App, area: Rect) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors::YELLOW))
+                .border_style(Style::default().fg(theme.yellow))
                 .title(Span::styled(
                     format!(" {} ", title),
-                    Style::default().fg(colors::YELLOW).bold(),
+                    Style::default().fg(theme.yellow).bold(),
                 ))
-                .style(Style::default().bg(colors::BASE)),
+                .style(Style::default().bg(theme.base)),
         )
         .alignment(Alignment::Center);
 
@@ -1019,7 +1118,7 @@ fn render_loading_overlay(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(popup, popup_area);
 }
 
-fn render_confirmation_dialog(frame: &mut Frame, app: &App, area: Rect) {
+fn render_confirmation_dialog(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
     let popup_area = centered_rect(50, 30, area);
 
     let (title, description, color) = if let Some(action) = &app.pending_action {
@@ -1038,7 +1137,7 @@ fn render_confirmation_dialog(frame: &mut Frame, app: &App, area: Rect) {
                 (
                     " Install ",
                     format!("{}\n\nTools: {}", desc, tool_list),
-                    colors::GREEN,
+                    theme.green,
                 )
             }
             super::app::PendingAction::Uninstall(tools) => {
@@ -1055,7 +1154,7 @@ fn render_confirmation_dialog(frame: &mut Frame, app: &App, area: Rect) {
                 (
                     " Uninstall ",
                     format!("{}\n\nTools: {}", desc, tool_list),
-                    colors::RED,
+                    theme.red,
                 )
             }
             super::app::PendingAction::Update(tools) => {
@@ -1072,7 +1171,7 @@ fn render_confirmation_dialog(frame: &mut Frame, app: &App, area: Rect) {
                 (
                     " Update ",
                     format!("{}\n\nTools: {}", desc, tool_list),
-                    colors::YELLOW,
+                    theme.yellow,
                 )
             }
         }
@@ -1082,17 +1181,17 @@ fn render_confirmation_dialog(frame: &mut Frame, app: &App, area: Rect) {
 
     let content = Text::from(vec![
         Line::from(""),
-        Line::from(Span::styled(description, Style::default().fg(colors::TEXT))),
+        Line::from(Span::styled(description, Style::default().fg(theme.text))),
         Line::from(""),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Press ", Style::default().fg(colors::SUBTEXT0)),
-            Span::styled("y", Style::default().fg(colors::GREEN).bold()),
-            Span::styled(" to confirm, ", Style::default().fg(colors::SUBTEXT0)),
-            Span::styled("n", Style::default().fg(colors::RED).bold()),
-            Span::styled(" or ", Style::default().fg(colors::SUBTEXT0)),
-            Span::styled("Esc", Style::default().fg(colors::YELLOW).bold()),
-            Span::styled(" to cancel", Style::default().fg(colors::SUBTEXT0)),
+            Span::styled("Press ", Style::default().fg(theme.subtext0)),
+            Span::styled("y", Style::default().fg(theme.green).bold()),
+            Span::styled(" to confirm, ", Style::default().fg(theme.subtext0)),
+            Span::styled("n", Style::default().fg(theme.red).bold()),
+            Span::styled(" or ", Style::default().fg(theme.subtext0)),
+            Span::styled("Esc", Style::default().fg(theme.yellow).bold()),
+            Span::styled(" to cancel", Style::default().fg(theme.subtext0)),
         ]),
     ]);
 
@@ -1102,7 +1201,7 @@ fn render_confirmation_dialog(frame: &mut Frame, app: &App, area: Rect) {
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(color))
                 .title(Span::styled(title, Style::default().fg(color).bold()))
-                .style(Style::default().bg(colors::BASE)),
+                .style(Style::default().bg(theme.base)),
         )
         .alignment(Alignment::Center)
         .wrap(Wrap { trim: true });

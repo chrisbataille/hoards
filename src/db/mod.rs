@@ -516,4 +516,65 @@ mod tests {
         assert!(!deleted);
         Ok(())
     }
+
+    // ==================== Daily Usage Tests ====================
+
+    #[test]
+    fn test_daily_usage_tracking() -> Result<()> {
+        let db = Database::open_in_memory()?;
+
+        db.insert_tool(&Tool::new("ripgrep").installed())?;
+
+        // Record usage (creates daily entry for today)
+        db.record_usage("ripgrep", 5, None)?;
+        db.record_usage("ripgrep", 3, None)?;
+
+        // Get daily usage for last 7 days
+        let daily = db.get_daily_usage("ripgrep", 7)?;
+        assert_eq!(daily.len(), 7);
+
+        // Today should have 8 uses (5 + 3)
+        assert_eq!(daily[6], 8);
+
+        // Previous days should be 0
+        for i in 0..6 {
+            assert_eq!(daily[i], 0);
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_daily_usage_nonexistent_tool() -> Result<()> {
+        let db = Database::open_in_memory()?;
+
+        let daily = db.get_daily_usage("nonexistent", 7)?;
+        assert_eq!(daily.len(), 7);
+        assert!(daily.iter().all(|&x| x == 0));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_all_daily_usage() -> Result<()> {
+        let db = Database::open_in_memory()?;
+
+        db.insert_tool(&Tool::new("ripgrep").installed())?;
+        db.insert_tool(&Tool::new("fd").installed())?;
+
+        db.record_usage("ripgrep", 10, None)?;
+        db.record_usage("fd", 5, None)?;
+
+        let all_daily = db.get_all_daily_usage(7)?;
+
+        // Should have entries for both tools
+        assert!(all_daily.contains_key("ripgrep"));
+        assert!(all_daily.contains_key("fd"));
+
+        // Today's values
+        assert_eq!(all_daily["ripgrep"][6], 10);
+        assert_eq!(all_daily["fd"][6], 5);
+
+        Ok(())
+    }
 }

@@ -183,6 +183,7 @@ pub struct App {
 
     // Cached data
     pub usage_data: HashMap<String, ToolUsage>,
+    pub daily_usage: HashMap<String, Vec<i64>>, // 7-day usage for sparklines
     pub github_cache: HashMap<String, GitHubInfo>,
 
     // Updates state
@@ -198,6 +199,7 @@ pub struct App {
     pub show_help: bool,
     pub show_details_popup: bool,
     pub sort_by: SortBy,
+    pub theme_variant: super::theme::ThemeVariant,
 
     // Multi-selection
     pub selected_tools: HashSet<String>,
@@ -219,6 +221,16 @@ impl App {
         // Load usage data
         let usage_data: HashMap<String, ToolUsage> = db.get_all_usage()?.into_iter().collect();
 
+        // Load 7-day daily usage for sparklines
+        let daily_usage = db.get_all_daily_usage(7).unwrap_or_default();
+
+        // Preload GitHub info for stars display
+        let github_cache: HashMap<String, GitHubInfo> = db
+            .get_all_github_info()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+
         let tools = all_tools.clone();
 
         Ok(Self {
@@ -231,7 +243,8 @@ impl App {
             selected_index: 0,
             list_offset: 0,
             usage_data,
-            github_cache: HashMap::new(),
+            daily_usage,
+            github_cache,
             available_updates: HashMap::new(),
             updates_checked: false,
             updates_loading: false,
@@ -240,6 +253,7 @@ impl App {
             show_help: false,
             show_details_popup: false,
             sort_by: SortBy::default(),
+            theme_variant: super::theme::ThemeVariant::default(),
             selected_tools: HashSet::new(),
             pending_action: None,
             status_message: None,
@@ -251,6 +265,20 @@ impl App {
     /// Quit the application
     pub fn quit(&mut self) {
         self.running = false;
+    }
+
+    /// Cycle to the next theme
+    pub fn cycle_theme(&mut self) {
+        self.theme_variant = self.theme_variant.next();
+        self.set_status(
+            format!("Theme: {}", self.theme_variant.display_name()),
+            false,
+        );
+    }
+
+    /// Get the current theme
+    pub fn theme(&self) -> super::theme::Theme {
+        self.theme_variant.theme()
     }
 
     /// Switch to a specific tab

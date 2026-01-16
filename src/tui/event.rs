@@ -156,6 +156,9 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         // Help
         KeyCode::Char('?') => app.toggle_help(),
 
+        // Theme cycling
+        KeyCode::Char('t') => app.cycle_theme(),
+
         // Refresh (check for updates on Updates tab)
         KeyCode::Char('r') => {
             if app.tab == Tab::Updates {

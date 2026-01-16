@@ -84,6 +84,16 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             updated_at TEXT NOT NULL
         );
 
+        -- Daily usage tracking for sparklines
+        CREATE TABLE IF NOT EXISTS usage_daily (
+            tool_id INTEGER NOT NULL REFERENCES tools(id) ON DELETE CASCADE,
+            date TEXT NOT NULL,  -- YYYY-MM-DD format
+            count INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (tool_id, date)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_usage_daily_date ON usage_daily(date);
+
         CREATE TABLE IF NOT EXISTS extraction_cache (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             repo_owner TEXT NOT NULL,

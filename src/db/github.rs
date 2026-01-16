@@ -131,4 +131,30 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()?;
         Ok(results)
     }
+
+    /// Get all GitHub info for all tools (for batch loading in TUI)
+    pub fn get_all_github_info(&self) -> Result<Vec<(String, GitHubInfo)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT t.name, tg.repo_owner, tg.repo_name, tg.description, tg.stars, tg.language, tg.homepage
+             FROM tools t
+             INNER JOIN tool_github tg ON t.id = tg.tool_id
+             ORDER BY t.name",
+        )?;
+        let results = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    GitHubInfo {
+                        repo_owner: row.get(1)?,
+                        repo_name: row.get(2)?,
+                        description: row.get(3)?,
+                        stars: row.get(4)?,
+                        language: row.get(5)?,
+                        homepage: row.get(6)?,
+                    },
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(results)
+    }
 }
