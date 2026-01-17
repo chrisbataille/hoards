@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/chrisbataille/hoards/compare/v0.2.1...v0.3.0) - 2026-01-17
+
+### Features
+
+- *(tui)* TUI polish and architecture improvements ([#25](https://github.com/chrisbataille/hoards/pull/25))
+
 ## [0.2.1](https://github.com/chrisbataille/hoards/compare/v0.2.0...v0.2.1) - 2026-01-15
 
 ### Features
