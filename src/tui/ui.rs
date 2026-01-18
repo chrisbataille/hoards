@@ -3,7 +3,7 @@
 use chrono::{DateTime, Datelike, Local, Utc};
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{
@@ -14,6 +14,65 @@ use ratatui::{
 
 use super::app::{App, InputMode, Tab, fuzzy_match_positions};
 use super::theme::Theme;
+
+/// Custom stylesheet for markdown rendering that uses the TUI theme
+#[derive(Clone)]
+struct ThemedStyleSheet {
+    heading_color: Color,
+    code_color: Color,
+    link_color: Color,
+    blockquote_color: Color,
+    meta_color: Color,
+}
+
+impl ThemedStyleSheet {
+    fn from_theme(theme: &Theme) -> Self {
+        Self {
+            heading_color: theme.blue,
+            code_color: theme.green,
+            link_color: theme.teal,
+            blockquote_color: theme.subtext0,
+            meta_color: theme.subtext0,
+        }
+    }
+}
+
+impl tui_markdown::StyleSheet for ThemedStyleSheet {
+    fn heading(&self, level: u8) -> Style {
+        let modifier = if level == 1 {
+            Modifier::BOLD | Modifier::UNDERLINED
+        } else {
+            Modifier::BOLD
+        };
+        Style::default()
+            .fg(self.heading_color)
+            .add_modifier(modifier)
+    }
+
+    fn code(&self) -> Style {
+        Style::default().fg(self.code_color)
+    }
+
+    fn link(&self) -> Style {
+        Style::default()
+            .fg(self.link_color)
+            .add_modifier(Modifier::UNDERLINED)
+    }
+
+    fn blockquote(&self) -> Style {
+        Style::default()
+            .fg(self.blockquote_color)
+            .add_modifier(Modifier::ITALIC)
+    }
+
+    fn heading_meta(&self) -> Style {
+        Style::default().fg(self.meta_color)
+    }
+
+    fn metadata_block(&self) -> Style {
+        Style::default().fg(self.meta_color)
+    }
+}
 
 /// Get a consistent color for a label based on its hash
 fn label_color(label: &str, theme: &Theme) -> Color {
@@ -217,15 +276,28 @@ pub fn render(frame: &mut Frame, app: &mut App, db: &Database) {
         render_details_popup(frame, app, db, &theme, area);
     }
 
-    // Confirmation dialog takes highest priority
+    // README popup
+    if app.has_readme_popup() {
+        render_readme_popup(frame, app, &theme, area);
+    }
+
+    // Confirmation dialog takes high priority
     if app.has_pending_action() {
         render_confirmation_dialog(frame, app, &theme, area);
+    }
+
+    // Error modal blocks all input
+    if app.has_error_modal() {
+        render_error_modal(frame, app, &theme, area);
     }
 
     // Loading overlay takes absolute highest priority
     if app.has_background_op() {
         render_loading_overlay(frame, app, &theme, area);
     }
+
+    // Toast notifications always on top (but don't block input)
+    render_notifications(frame, app, &theme, area);
 }
 
 fn render_header(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
@@ -281,9 +353,9 @@ fn render_body(frame: &mut Frame, app: &mut App, db: &Database, theme: &Theme, a
         return;
     }
 
-    // Discover tab has its own rendering
+    // Discover tab has its own rendering (needs mutable access for list area)
     if app.tab == super::app::Tab::Discover {
-        render_discover(frame, app, theme, area);
+        render_discover_tab(frame, app, theme, area);
         return;
     }
 
@@ -935,170 +1007,512 @@ fn render_bundle_details(frame: &mut Frame, app: &App, db: &Database, theme: &Th
     frame.render_widget(details, area);
 }
 
-fn render_discover(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
-    // Split into search bar and results
-    let chunks = Layout::default()
+fn render_discover_tab(frame: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
+    // Split into controls area (filters + search) and content
+    let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(0)])
         .split(area);
 
+    // Render the search controls area (AI toggle, filters, search bar)
+    render_discover_search_controls(frame, app, theme, vertical_chunks[0]);
+
+    // Content area (results + details)
+    let content_area = vertical_chunks[1];
+
+    // Results area
+    if app.discover_results.is_empty() {
+        render_discover_empty_state(frame, app, theme, content_area);
+    } else {
+        // Split horizontally for list and details (if wide enough)
+        let min_width_for_split = 80;
+        if content_area.width >= min_width_for_split {
+            let horizontal_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(40), Constraint::Percentage(60)])
+                .split(content_area);
+
+            render_discover_list(frame, app, theme, horizontal_chunks[0]);
+            render_discover_details(frame, app, theme, horizontal_chunks[1]);
+        } else {
+            // Narrow terminal: list only
+            render_discover_list(frame, app, theme, content_area);
+        }
+    }
+}
+
+/// Render the discover search controls (AI toggle, source filters, search input)
+fn render_discover_search_controls(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    use super::app::InputMode;
+
+    let is_search_mode =
+        app.input_mode == InputMode::Search && app.tab == super::app::Tab::Discover;
+
+    // Get available sources (config-aware)
+    let available_sources = app.get_available_discover_sources();
+
+    // Calculate widths dynamically
+    // AI toggle: "[x]🤖" = ~6 chars
+    let ai_width = 7u16;
+
+    // Filter chips: each is "F1[x]🦀 " (Fn + checkbox + icon + space) = ~8 chars each
+    let filter_chips_width: u16 = available_sources
+        .iter()
+        .enumerate()
+        .map(|(idx, (_, icon, _))| {
+            // "Fn" (2-3 chars) + "[x]" (3) + icon + space
+            let fkey_width = if idx + 1 >= 10 { 3 } else { 2 }; // F1 vs F10
+            (fkey_width + 3 + icon.chars().count() + 1) as u16
+        })
+        .sum::<u16>()
+        + 4; // borders + padding
+
+    let min_search_width = 20u16;
+    let controls_width = ai_width + filter_chips_width;
+
+    // If not enough space, just show search bar
+    if area.width < controls_width + min_search_width {
+        render_discover_search_bar_only(frame, app, theme, area, is_search_mode);
+        return;
+    }
+
+    // Split horizontally: AI toggle | Filters | Search bar
+    let horizontal_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(ai_width),
+            Constraint::Length(filter_chips_width),
+            Constraint::Min(min_search_width),
+        ])
+        .split(area);
+
+    // AI toggle with robot emoji
+    let ai_checkbox = if app.discover_ai_enabled {
+        "[x]"
+    } else {
+        "[ ]"
+    };
+    let ai_text = format!("{}🤖", ai_checkbox);
+    let ai_style = if app.discover_ai_enabled {
+        Style::default().fg(theme.green).bold()
+    } else {
+        Style::default().fg(theme.subtext0)
+    };
+    let ai_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if app.discover_ai_enabled {
+            theme.green
+        } else {
+            theme.surface1
+        }));
+    let ai_para = Paragraph::new(Span::styled(ai_text, ai_style)).block(ai_block);
+    frame.render_widget(ai_para, horizontal_chunks[0]);
+
+    // Source filter chips with icons only (dimmed if AI is enabled)
+    // F1-F6 keys map to sources by index
+    let mut filter_spans: Vec<Span> = Vec::new();
+    for (idx, (key, icon, _display)) in available_sources.iter().enumerate() {
+        let is_enabled = app.is_discover_source_enabled(key);
+        let checkbox = if is_enabled { "x" } else { " " };
+        let fkey = idx + 1; // F1, F2, etc.
+
+        // Dim filters when AI mode is active (they're ignored)
+        let style = if app.discover_ai_enabled {
+            Style::default().fg(theme.surface1) // Very dim when AI mode
+        } else if is_enabled {
+            Style::default().fg(theme.blue)
+        } else {
+            Style::default().fg(theme.subtext0)
+        };
+        // Format: "F1[x]🦀 " to show the key binding
+        filter_spans.push(Span::styled(
+            format!("F{}[{}]{} ", fkey, checkbox, icon),
+            style,
+        ));
+    }
+
+    let filter_border_color = if app.discover_ai_enabled {
+        theme.surface0
+    } else {
+        theme.surface1
+    };
+    let filter_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(filter_border_color));
+    let filter_para = Paragraph::new(Line::from(filter_spans)).block(filter_block);
+    frame.render_widget(filter_para, horizontal_chunks[1]);
+
     // Search bar
     let search_title = if app.discover_loading {
-        " Search (loading...) "
+        if !app.loading_progress.step_name.is_empty() {
+            format!(
+                " {} ({}/{}) ",
+                app.loading_progress.step_name,
+                app.loading_progress.current_step,
+                app.loading_progress.total_steps
+            )
+        } else {
+            " Searching... ".to_string()
+        }
+    } else if let Some(idx) = app.discover_history_index {
+        format!(" History [{}/{}] ", idx + 1, app.discover_history.len())
     } else {
-        " Search "
+        " Search ".to_string()
     };
 
     let search_block = Block::default()
         .borders(Borders::ALL)
-        .border_style(
-            Style::default().fg(if app.input_mode == super::app::InputMode::Search {
-                theme.blue
-            } else {
-                theme.surface1
-            }),
-        )
+        .border_style(Style::default().fg(if is_search_mode {
+            theme.blue
+        } else {
+            theme.surface1
+        }))
         .title(Span::styled(search_title, Style::default().fg(theme.text)));
 
-    let search_text =
-        if app.discover_query.is_empty() && app.input_mode != super::app::InputMode::Search {
-            Span::styled(
-                "Press / to search GitHub, crates.io, PyPI...",
-                Style::default().fg(theme.subtext0),
-            )
-        } else {
-            Span::styled(&app.discover_query, Style::default().fg(theme.text))
-        };
-
-    let search_paragraph = Paragraph::new(search_text).block(search_block);
-    frame.render_widget(search_paragraph, chunks[0]);
-
-    // Results area
-    if app.discover_results.is_empty() {
-        // Empty state
-        let message = if app.discover_query.is_empty() {
-            vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "🔍 Discover new tools",
-                    Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Press / to search across:",
-                    Style::default().fg(theme.subtext0),
-                )),
-                Line::from(vec![
-                    Span::styled("  • ", Style::default().fg(theme.subtext0)),
-                    Span::styled("GitHub ", Style::default().fg(theme.text)),
-                    Span::styled(
-                        "- repositories and releases",
-                        Style::default().fg(theme.subtext0),
-                    ),
-                ]),
-                Line::from(vec![
-                    Span::styled("  • ", Style::default().fg(theme.subtext0)),
-                    Span::styled("crates.io ", Style::default().fg(theme.peach)),
-                    Span::styled("- Rust packages", Style::default().fg(theme.subtext0)),
-                ]),
-                Line::from(vec![
-                    Span::styled("  • ", Style::default().fg(theme.subtext0)),
-                    Span::styled("PyPI ", Style::default().fg(theme.green)),
-                    Span::styled("- Python packages", Style::default().fg(theme.subtext0)),
-                ]),
-                Line::from(vec![
-                    Span::styled("  • ", Style::default().fg(theme.subtext0)),
-                    Span::styled("npm ", Style::default().fg(theme.red)),
-                    Span::styled("- Node.js packages", Style::default().fg(theme.subtext0)),
-                ]),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Or use AI suggestions with :ai <description>",
-                    Style::default().fg(theme.subtext0),
-                )),
-            ]
-        } else {
-            vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "No results found",
-                    Style::default().fg(theme.subtext0),
-                )),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "Try a different search term",
-                    Style::default().fg(theme.subtext0),
-                )),
-            ]
-        };
-
-        let empty = Paragraph::new(message)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.surface1))
-                    .title(Span::styled(" Results ", Style::default().fg(theme.text))),
-            )
-            .alignment(Alignment::Center);
-
-        frame.render_widget(empty, chunks[1]);
+    let search_text = if app.discover_query.is_empty() && !is_search_mode {
+        Span::styled(
+            "Press / to search, ↑↓ history",
+            Style::default().fg(theme.subtext0),
+        )
     } else {
-        // Results list
-        let items: Vec<ListItem> = app
-            .discover_results
-            .iter()
-            .enumerate()
-            .map(|(i, result)| {
-                let icon = result.source.icon();
-                let stars_str = result
-                    .stars
-                    .map(|s| format!(" ★ {}", format_stars(s as i64)))
-                    .unwrap_or_default();
+        Span::styled(&app.discover_query, Style::default().fg(theme.text))
+    };
 
-                let desc = result
-                    .description
-                    .as_ref()
-                    .map(|d| {
-                        let truncated: String = d.chars().take(50).collect();
-                        if d.len() > 50 {
-                            format!("{}...", truncated)
-                        } else {
-                            truncated
-                        }
-                    })
-                    .unwrap_or_default();
+    let search_para = Paragraph::new(search_text).block(search_block);
+    frame.render_widget(search_para, horizontal_chunks[2]);
+}
 
-                let content = Line::from(vec![
-                    Span::styled(format!("{} ", icon), Style::default()),
-                    Span::styled(&result.name, Style::default().fg(theme.text)),
-                    Span::styled(stars_str, Style::default().fg(theme.yellow)),
-                    Span::styled(format!("  {}", desc), Style::default().fg(theme.subtext0)),
-                ]);
+/// Fallback for narrow terminals - just show search bar
+fn render_discover_search_bar_only(
+    frame: &mut Frame,
+    app: &App,
+    theme: &Theme,
+    area: Rect,
+    is_search_mode: bool,
+) {
+    let search_title = if app.discover_loading {
+        " Searching... ".to_string()
+    } else {
+        " Search ".to_string()
+    };
 
-                let style = if i == app.discover_selected {
-                    Style::default().bg(theme.surface0)
-                } else {
-                    Style::default()
-                };
+    let search_block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(if is_search_mode {
+            theme.blue
+        } else {
+            theme.surface1
+        }))
+        .title(Span::styled(search_title, Style::default().fg(theme.text)));
 
-                ListItem::new(content).style(style)
-            })
-            .collect();
+    let search_text = if app.discover_query.is_empty() && !is_search_mode {
+        Span::styled("Press / to search", Style::default().fg(theme.subtext0))
+    } else {
+        Span::styled(&app.discover_query, Style::default().fg(theme.text))
+    };
 
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(theme.surface1))
-                    .title(Span::styled(
-                        format!(" Results [{}] ", app.discover_results.len()),
-                        Style::default().fg(theme.text),
-                    )),
-            )
-            .highlight_style(Style::default().bg(theme.surface0));
+    let search_para = Paragraph::new(search_text).block(search_block);
+    frame.render_widget(search_para, area);
+}
 
-        frame.render_widget(list, chunks[1]);
+fn render_discover_empty_state(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let message = if app.discover_query.is_empty() {
+        // Build dynamic source list based on what's available
+        let available_sources = app.get_available_discover_sources();
+        let mut lines = vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "🔍 Discover new tools",
+                Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Search across multiple sources:",
+                Style::default().fg(theme.subtext0),
+            )),
+        ];
+
+        // Add each available source
+        for (key, icon, _display) in &available_sources {
+            let desc = match *key {
+                "cargo" => "Rust packages (crates.io)",
+                "npm" => "Node.js packages",
+                "pip" => "Python packages (PyPI)",
+                "brew" => "Homebrew formulae",
+                "apt" => "Debian/Ubuntu packages",
+                "github" => "GitHub repositories",
+                _ => continue,
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {} ", icon), Style::default().fg(theme.subtext0)),
+                Span::styled(desc, Style::default().fg(theme.text)),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "─── Keyboard shortcuts ───",
+            Style::default().fg(theme.surface1),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled("  /         ", Style::default().fg(theme.blue)),
+            Span::styled("Enter search mode", Style::default().fg(theme.subtext0)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  ↑/↓       ", Style::default().fg(theme.blue)),
+            Span::styled(
+                "Browse search history (in search mode)",
+                Style::default().fg(theme.subtext0),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Shift+A   ", Style::default().fg(theme.blue)),
+            Span::styled("Toggle AI search mode", Style::default().fg(theme.subtext0)),
+        ]));
+        // Build dynamic F-key range based on available sources
+        let fkey_label = if available_sources.is_empty() {
+            "  -         ".to_string()
+        } else if available_sources.len() == 1 {
+            "  F1        ".to_string()
+        } else {
+            format!("  F1-F{}     ", available_sources.len())
+        };
+        lines.push(Line::from(vec![
+            Span::styled(fkey_label, Style::default().fg(theme.blue)),
+            Span::styled("Toggle source filters", Style::default().fg(theme.subtext0)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  Enter     ", Style::default().fg(theme.blue)),
+            Span::styled(
+                "View README for selected result",
+                Style::default().fg(theme.subtext0),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        if app.ai_available {
+            lines.push(Line::from(vec![
+                Span::styled("🤖 ", Style::default()),
+                Span::styled("AI mode: ", Style::default().fg(theme.green).bold()),
+                Span::styled(
+                    "Press Shift+A to enable AI-powered discovery",
+                    Style::default().fg(theme.subtext0),
+                ),
+            ]));
+        }
+
+        lines
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "No results found",
+                Style::default().fg(theme.subtext0),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "Try a different search term",
+                Style::default().fg(theme.subtext0),
+            )),
+        ]
+    };
+
+    let empty = Paragraph::new(message)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.surface1))
+                .title(Span::styled(" Results ", Style::default().fg(theme.text))),
+        )
+        .alignment(Alignment::Center);
+
+    frame.render_widget(empty, area);
+}
+
+fn render_discover_list(frame: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
+    // Store list area for mouse interaction
+    app.set_list_area(area.x, area.y, area.width, area.height);
+
+    let items: Vec<ListItem> = app
+        .discover_results
+        .iter()
+        .map(|result| {
+            let icon = result.source.icon();
+            let stars_str = result
+                .stars
+                .map(|s| format!(" ★ {}", format_stars(s as i64)))
+                .unwrap_or_default();
+
+            let content = Line::from(vec![
+                Span::styled(format!("{} ", icon), Style::default()),
+                Span::styled(&result.name, Style::default().fg(theme.text)),
+                Span::styled(stars_str, Style::default().fg(theme.yellow)),
+            ]);
+
+            ListItem::new(content)
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.surface1))
+                .title(Span::styled(
+                    format!(
+                        " Results [{}] ({}↕) ",
+                        app.discover_results.len(),
+                        app.discover_sort_by.label()
+                    ),
+                    Style::default().fg(theme.text),
+                )),
+        )
+        .highlight_style(Style::default().bg(theme.surface0));
+
+    // Calculate scroll offset to keep selection visible
+    let visible_height = area.height.saturating_sub(2) as usize;
+    let mut state = ratatui::widgets::ListState::default();
+
+    if !app.discover_results.is_empty() && visible_height > 0 {
+        // Keep selection centered when possible
+        let offset = app.discover_selected.saturating_sub(visible_height / 2);
+        let max_offset = app.discover_results.len().saturating_sub(visible_height);
+        *state.offset_mut() = offset.min(max_offset);
+        state.select(Some(app.discover_selected));
     }
+
+    frame.render_stateful_widget(list, area, &mut state);
+
+    // Scrollbar for results
+    if app.discover_results.len() > visible_height {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"))
+            .track_symbol(Some("│"))
+            .thumb_symbol("█");
+
+        let mut scrollbar_state =
+            ScrollbarState::new(app.discover_results.len()).position(app.discover_selected);
+
+        frame.render_stateful_widget(
+            scrollbar,
+            area.inner(Margin {
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut scrollbar_state,
+        );
+    }
+}
+
+fn render_discover_details(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let content = if let Some(result) = app.selected_discover() {
+        let mut lines = vec![
+            Line::from(vec![
+                Span::styled("Name: ", Style::default().fg(theme.subtext0)),
+                Span::styled(result.name.clone(), Style::default().fg(theme.blue).bold()),
+            ]),
+            Line::from(""),
+        ];
+
+        // Description
+        if let Some(desc) = &result.description {
+            lines.push(Line::from(Span::styled(
+                "Description:",
+                Style::default().fg(theme.subtext0),
+            )));
+            lines.push(Line::from(Span::styled(
+                desc.clone(),
+                Style::default().fg(theme.text),
+            )));
+            lines.push(Line::from(""));
+        }
+
+        // Source
+        let icon = result.source.icon();
+        lines.push(Line::from(vec![
+            Span::styled("Source: ", Style::default().fg(theme.subtext0)),
+            Span::styled(
+                format!("{} {:?}", icon, result.source),
+                Style::default().fg(theme.peach),
+            ),
+        ]));
+
+        // Stars
+        if let Some(stars) = result.stars {
+            lines.push(Line::from(vec![
+                Span::styled("Stars: ", Style::default().fg(theme.subtext0)),
+                Span::styled(
+                    format!("★ {}", format_stars(stars as i64)),
+                    Style::default().fg(theme.yellow),
+                ),
+            ]));
+        }
+
+        // URL
+        if let Some(url) = &result.url {
+            lines.push(Line::from(vec![
+                Span::styled("URL: ", Style::default().fg(theme.subtext0)),
+                Span::styled(url.clone(), Style::default().fg(theme.blue)),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+
+        // Install options
+        if !result.install_options.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "Install commands:",
+                Style::default().fg(theme.subtext0),
+            )));
+            for opt in &result.install_options {
+                let opt_icon = opt.source.icon();
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  {} ", opt_icon), Style::default()),
+                    Span::styled(
+                        opt.install_command.clone(),
+                        Style::default().fg(theme.green),
+                    ),
+                ]));
+            }
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+
+        // Keyboard hints
+        lines.push(Line::from(Span::styled(
+            "─── Actions ───",
+            Style::default().fg(theme.surface1),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled("i", Style::default().fg(theme.mauve)),
+            Span::styled(" install  ", Style::default().fg(theme.subtext0)),
+            Span::styled("Enter", Style::default().fg(theme.mauve)),
+            Span::styled(" open URL", Style::default().fg(theme.subtext0)),
+        ]));
+
+        lines
+    } else {
+        vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Select a result to see details",
+                Style::default().fg(theme.subtext0),
+            )),
+        ]
+    };
+
+    let paragraph = Paragraph::new(content)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.surface1))
+                .title(Span::styled(" Details ", Style::default().fg(theme.text))),
+        )
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(paragraph, area);
 }
 
 // ============================================================================
@@ -1157,6 +1571,11 @@ fn build_footer_right_status(app: &App, theme: &Theme) -> (Vec<Span<'static>>, u
 
 /// Build footer content for Normal mode
 fn build_normal_mode_footer(app: &App, theme: &Theme) -> Vec<Span<'static>> {
+    // Discover tab has different shortcuts
+    if app.tab == super::app::Tab::Discover {
+        return build_discover_footer(app, theme);
+    }
+
     let mut spans = vec![
         Span::styled(" j/k", Style::default().fg(theme.blue)),
         Span::styled(" nav ", Style::default().fg(theme.subtext0)),
@@ -1180,6 +1599,63 @@ fn build_normal_mode_footer(app: &App, theme: &Theme) -> Vec<Span<'static>> {
         ));
     } else if !app.search_query.is_empty() || app.source_filter.is_some() || app.favorites_only {
         spans.extend(build_filter_status(app, theme));
+    }
+
+    spans
+}
+
+/// Build footer content for Discover tab
+fn build_discover_footer(app: &App, theme: &Theme) -> Vec<Span<'static>> {
+    // Build F-key range based on available sources
+    let source_count = app.get_available_discover_sources().len();
+    let fkey_label = if source_count == 0 {
+        String::new()
+    } else if source_count == 1 {
+        " F1".to_string()
+    } else {
+        format!(" F1-F{}", source_count)
+    };
+
+    let mut spans = vec![
+        Span::styled(" j/k", Style::default().fg(theme.blue)),
+        Span::styled(" nav ", Style::default().fg(theme.subtext0)),
+        Span::styled(" /", Style::default().fg(theme.yellow)),
+        Span::styled(" search ", Style::default().fg(theme.subtext0)),
+        Span::styled(" A", Style::default().fg(theme.green)),
+        Span::styled(" AI ", Style::default().fg(theme.subtext0)),
+    ];
+
+    if !fkey_label.is_empty() {
+        spans.push(Span::styled(fkey_label, Style::default().fg(theme.blue)));
+        spans.push(Span::styled(
+            " filters ",
+            Style::default().fg(theme.subtext0),
+        ));
+    }
+
+    spans.extend([
+        Span::styled(" Enter", Style::default().fg(theme.blue)),
+        Span::styled(" readme ", Style::default().fg(theme.subtext0)),
+        Span::styled(" ?", Style::default().fg(theme.blue)),
+        Span::styled(" help", Style::default().fg(theme.subtext0)),
+    ]);
+
+    // Show current filter state
+    let enabled_count = app.discover_source_filters.len();
+    let total_sources = app.get_available_discover_sources().len();
+
+    spans.push(Span::styled(" │ ", Style::default().fg(theme.surface1)));
+
+    if app.discover_ai_enabled {
+        spans.push(Span::styled(
+            "🤖 AI",
+            Style::default().fg(theme.green).bold(),
+        ));
+    } else {
+        spans.push(Span::styled(
+            format!("{}/{} sources", enabled_count, total_sources),
+            Style::default().fg(theme.blue),
+        ));
     }
 
     spans
@@ -1595,6 +2071,14 @@ fn make_section_header<'a>(title: &'static str, focused: bool, theme: &Theme) ->
     ))
 }
 
+/// Create a dimmed section header for disabled sections
+fn make_section_header_dimmed<'a>(title: &'static str, theme: &Theme) -> Line<'a> {
+    Line::from(Span::styled(
+        title,
+        Style::default().fg(theme.subtext0).italic(),
+    ))
+}
+
 /// Render AI Provider section lines
 fn render_config_ai_section(
     state: &super::app::ConfigMenuState,
@@ -1617,6 +2101,50 @@ fn render_config_ai_section(
         let selected = i == state.ai_selected;
         let focused = ai_focused && selected;
         lines.push(make_radio_line(selected, focused, label.to_string(), theme));
+    }
+
+    lines.push(Line::from(""));
+    lines
+}
+
+/// Render Claude Model section lines (only shown when Claude is selected)
+fn render_config_claude_model_section(
+    state: &super::app::ConfigMenuState,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
+    use super::app::ConfigSection;
+    use crate::config::AiProvider;
+
+    let claude_focused = state.section == ConfigSection::ClaudeModel;
+
+    // Check if Claude is selected as the AI provider
+    let claude_provider_index = AiProvider::all()
+        .iter()
+        .position(|p| *p == AiProvider::Claude)
+        .unwrap_or(1);
+    let is_claude_selected = state.ai_selected == claude_provider_index;
+
+    // Only show full section if Claude is selected as provider
+    if !is_claude_selected {
+        return vec![
+            make_section_header_dimmed("Claude Model (select Claude above)", theme),
+            Line::from(""),
+        ];
+    }
+
+    let mut lines = vec![make_section_header("Claude Model", claude_focused, theme)];
+
+    let models = [
+        ("Haiku", "Fast and cost-effective"),
+        ("Sonnet", "Balanced intelligence"),
+        ("Opus", "Most capable"),
+    ];
+
+    for (i, (name, desc)) in models.iter().enumerate() {
+        let selected = i == state.claude_model_selected;
+        let focused = claude_focused && selected;
+        let label = format!("{} - {}", name, desc);
+        lines.push(make_radio_line(selected, focused, label, theme));
     }
 
     lines.push(Line::from(""));
@@ -1778,6 +2306,7 @@ fn render_config_menu(frame: &mut Frame, app: &mut App, theme: &Theme, area: Rec
     // Build content lines from section helpers
     let mut lines = Vec::new();
     lines.extend(render_config_ai_section(state, theme));
+    lines.extend(render_config_claude_model_section(state, theme));
     lines.extend(render_config_theme_section(state, theme));
     lines.extend(render_config_sources_section(state, theme));
     lines.extend(render_config_usage_section(state, theme));
@@ -2059,6 +2588,399 @@ fn render_loading_overlay(frame: &mut Frame, app: &App, theme: &Theme, area: Rec
 
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
+}
+
+/// Render toast notifications in top-right corner
+fn render_notifications(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    if app.notifications.is_empty() {
+        return;
+    }
+
+    use super::app::NotificationLevel;
+
+    // Stack notifications from top-right
+    // Use 60% of screen width for notifications, min 40, max 80
+    let max_width = (area.width * 60 / 100)
+        .clamp(40, 80)
+        .min(area.width.saturating_sub(4));
+    let mut y_offset = 1u16;
+
+    for notification in &app.notifications {
+        let (border_color, icon) = match notification.level {
+            NotificationLevel::Info => (theme.blue, "ℹ"),
+            NotificationLevel::Warning => (theme.yellow, "⚠"),
+            NotificationLevel::Error => (theme.red, "✗"),
+        };
+
+        // Calculate wrapped lines
+        let inner_width = (max_width as usize).saturating_sub(4); // borders + padding
+        let text = &notification.text;
+
+        // Word wrap the text
+        let mut lines: Vec<Line> = Vec::new();
+        let mut current_line = format!("{} ", icon);
+
+        for word in text.split_whitespace() {
+            if current_line.len() + word.len() + 1 > inner_width {
+                lines.push(Line::from(Span::styled(
+                    current_line.clone(),
+                    Style::default().fg(if lines.is_empty() {
+                        border_color
+                    } else {
+                        theme.text
+                    }),
+                )));
+                current_line = format!("  {}", word); // indent continuation
+            } else {
+                if !current_line.ends_with(' ') && !current_line.is_empty() {
+                    current_line.push(' ');
+                }
+                current_line.push_str(word);
+            }
+        }
+        if !current_line.is_empty() {
+            lines.push(Line::from(Span::styled(
+                current_line,
+                Style::default().fg(if lines.is_empty() {
+                    border_color
+                } else {
+                    theme.text
+                }),
+            )));
+        }
+
+        // Calculate height needed (lines + 2 for borders)
+        let height = (lines.len() as u16 + 2).min(area.height.saturating_sub(y_offset));
+
+        if y_offset + height > area.height {
+            break; // No more room
+        }
+
+        let toast_area = Rect {
+            x: area.width.saturating_sub(max_width + 2),
+            y: y_offset,
+            width: max_width,
+            height,
+        };
+
+        let content = Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(border_color))
+                    .style(Style::default().bg(theme.surface0)),
+            )
+            .wrap(ratatui::widgets::Wrap { trim: false });
+
+        frame.render_widget(Clear, toast_area);
+        frame.render_widget(content, toast_area);
+
+        y_offset += height + 1; // toast height + gap
+    }
+}
+
+/// Render error modal (centered, blocking)
+fn render_error_modal(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let modal = match &app.error_modal {
+        Some(m) => m,
+        None => return,
+    };
+
+    let popup_area = centered_rect(60, 40, area);
+
+    // Wrap message text
+    let max_line_len = (popup_area.width as usize).saturating_sub(4);
+    let wrapped_lines: Vec<Line> = modal
+        .message
+        .lines()
+        .flat_map(|line| {
+            if line.len() <= max_line_len {
+                vec![Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(theme.text),
+                ))]
+            } else {
+                // Simple word wrap
+                line.chars()
+                    .collect::<Vec<_>>()
+                    .chunks(max_line_len)
+                    .map(|chunk| {
+                        Line::from(Span::styled(
+                            chunk.iter().collect::<String>(),
+                            Style::default().fg(theme.text),
+                        ))
+                    })
+                    .collect()
+            }
+        })
+        .collect();
+
+    let mut lines = vec![Line::from("")];
+    lines.extend(wrapped_lines);
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Press Enter or Esc to close",
+        Style::default().fg(theme.subtext0).italic(),
+    )));
+
+    let content = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.red))
+            .title(Span::styled(
+                format!(" ✗ {} ", modal.title),
+                Style::default().fg(theme.red).bold(),
+            ))
+            .style(Style::default().bg(theme.base)),
+    );
+
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(content, popup_area);
+}
+
+/// Render README popup with markdown rendering
+fn render_readme_popup(frame: &mut Frame, app: &mut App, theme: &Theme, area: Rect) {
+    // Extract data we need to avoid borrow conflicts
+    let (tool_name, content, loading, stored_scroll, links, show_links, selected_link) =
+        match &app.readme_popup {
+            Some(p) => (
+                p.tool_name.clone(),
+                p.content.clone(),
+                p.loading,
+                p.scroll_offset,
+                p.links.clone(),
+                p.show_links,
+                p.selected_link,
+            ),
+            None => return,
+        };
+
+    let popup_area = centered_rect(80, 85, area);
+
+    if loading {
+        // Show loading state
+        let content = Paragraph::new(vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "Loading README...",
+                Style::default().fg(theme.blue),
+            )),
+        ])
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.blue))
+                .title(Span::styled(
+                    format!(" {} - README ", tool_name),
+                    Style::default().fg(theme.blue).bold(),
+                ))
+                .style(Style::default().bg(theme.base)),
+        )
+        .alignment(Alignment::Center);
+
+        frame.render_widget(Clear, popup_area);
+        frame.render_widget(content, popup_area);
+        return;
+    }
+
+    // Parse markdown to ratatui Text with themed styling
+    // Wrap in catch_unwind because tui-markdown can panic on some edge cases
+    let stylesheet = ThemedStyleSheet::from_theme(theme);
+    let options = tui_markdown::Options::new(stylesheet);
+
+    let markdown_text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tui_markdown::from_str_with_options(&content, &options)
+    }));
+
+    let markdown_text = match markdown_text {
+        Ok(text) => text,
+        Err(_) => {
+            // Fallback to plain text if markdown parsing panics
+            Text::from(content.clone())
+        }
+    };
+
+    // Calculate content height for scroll limiting
+    let content_height = markdown_text.lines.len() as u16;
+    let visible_height = popup_area.height.saturating_sub(2); // Account for borders
+
+    // Clamp scroll offset
+    let max_scroll = content_height.saturating_sub(visible_height);
+    let scroll_offset = stored_scroll.min(max_scroll);
+
+    // Update scroll offset in app state if it was clamped
+    if let Some(p) = &mut app.readme_popup {
+        p.scroll_offset = scroll_offset;
+    }
+
+    // Build keyboard hints based on link count
+    let link_hint = if links.is_empty() {
+        vec![]
+    } else {
+        vec![
+            Span::styled(" │ ", Style::default().fg(theme.surface1)),
+            Span::styled("o ", Style::default().fg(theme.subtext0)),
+            Span::styled(
+                format!("links({})", links.len()),
+                Style::default().fg(theme.subtext0),
+            ),
+        ]
+    };
+
+    let mut hints = vec![
+        Span::styled(" j/k ", Style::default().fg(theme.subtext0)),
+        Span::styled("scroll", Style::default().fg(theme.subtext0)),
+        Span::styled(" │ ", Style::default().fg(theme.surface1)),
+        Span::styled("q/Esc ", Style::default().fg(theme.subtext0)),
+        Span::styled("close", Style::default().fg(theme.subtext0)),
+    ];
+    hints.extend(link_hint);
+
+    let paragraph = Paragraph::new(markdown_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.blue))
+                .title(Span::styled(
+                    format!(" {} - README ", tool_name),
+                    Style::default().fg(theme.blue).bold(),
+                ))
+                .title_bottom(Line::from(hints))
+                .style(Style::default().bg(theme.base)),
+        )
+        .scroll((scroll_offset, 0));
+
+    // Add scrollbar
+    let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(Some("▲"))
+        .end_symbol(Some("▼"))
+        .track_symbol(Some("│"))
+        .thumb_symbol("█")
+        .track_style(Style::default().fg(theme.surface1))
+        .thumb_style(Style::default().fg(theme.blue));
+
+    let mut scrollbar_state =
+        ScrollbarState::new(content_height as usize).position(scroll_offset as usize);
+
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(paragraph, popup_area);
+
+    // Render scrollbar in the inner area (excluding borders)
+    let scrollbar_area = Rect {
+        x: popup_area.x + popup_area.width - 1,
+        y: popup_area.y + 1,
+        width: 1,
+        height: popup_area.height.saturating_sub(2),
+    };
+    frame.render_stateful_widget(scrollbar, scrollbar_area, &mut scrollbar_state);
+
+    // Render link picker overlay if showing
+    if show_links && !links.is_empty() {
+        render_link_picker(frame, theme, popup_area, &links, selected_link);
+    }
+}
+
+/// Render link picker overlay
+fn render_link_picker(
+    frame: &mut Frame,
+    theme: &Theme,
+    parent_area: Rect,
+    links: &[(String, String)],
+    selected: usize,
+) {
+    // Size the picker based on content - ensure minimum usable size
+    let visible_items = links.len().min(15); // Show at most 15 items at a time
+    let max_height = (visible_items + 2).max(5) as u16; // +2 for borders, min 5
+
+    // Calculate width based on content
+    let content_width = links
+        .iter()
+        .map(|(text, url)| {
+            if text == url {
+                text.chars().count()
+            } else {
+                text.chars().count() + url.chars().count() + 4 // " → "
+            }
+        })
+        .max()
+        .unwrap_or(30)
+        .min(70) as u16
+        + 6; // borders + padding
+
+    // Calculate picker area - use fixed percentages that work better
+    let picker_width = content_width
+        .max(40)
+        .min(parent_area.width.saturating_sub(4));
+    let picker_height = max_height.min(parent_area.height.saturating_sub(4));
+
+    let picker_area = Rect {
+        x: parent_area.x + (parent_area.width.saturating_sub(picker_width)) / 2,
+        y: parent_area.y + (parent_area.height.saturating_sub(picker_height)) / 2,
+        width: picker_width,
+        height: picker_height,
+    };
+
+    // Build list items without individual styling (highlight_style handles selection)
+    let items: Vec<ListItem> = links
+        .iter()
+        .map(|(text, url)| {
+            let display = if text == url {
+                text.clone()
+            } else {
+                format!("{} → {}", text, url)
+            };
+
+            // Truncate if too long (character-aware for UTF-8 safety)
+            let max_chars = (picker_area.width as usize).saturating_sub(4);
+            let display = if display.chars().count() > max_chars {
+                let truncated: String = display.chars().take(max_chars.saturating_sub(3)).collect();
+                format!("{}...", truncated)
+            } else {
+                display
+            };
+
+            ListItem::new(Line::from(Span::styled(
+                display,
+                Style::default().fg(theme.teal),
+            )))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.teal))
+                .title(Span::styled(
+                    format!(" Links [{}/{}] ", selected + 1, links.len()),
+                    Style::default().fg(theme.teal).bold(),
+                ))
+                .title_bottom(Line::from(vec![
+                    Span::styled(" j/k ", Style::default().fg(theme.subtext0)),
+                    Span::styled("select", Style::default().fg(theme.subtext0)),
+                    Span::styled(" │ ", Style::default().fg(theme.surface1)),
+                    Span::styled("Enter ", Style::default().fg(theme.subtext0)),
+                    Span::styled("open", Style::default().fg(theme.subtext0)),
+                    Span::styled(" │ ", Style::default().fg(theme.surface1)),
+                    Span::styled("Esc ", Style::default().fg(theme.subtext0)),
+                    Span::styled("close", Style::default().fg(theme.subtext0)),
+                ]))
+                .style(Style::default().bg(theme.base)),
+        )
+        .highlight_style(
+            Style::default()
+                .bg(theme.surface0)
+                .fg(theme.blue)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("▶ ");
+
+    // Use ListState for proper selection and scrolling
+    let mut list_state = ListState::default();
+    list_state.select(Some(selected));
+
+    frame.render_widget(Clear, picker_area);
+    frame.render_stateful_widget(list, picker_area, &mut list_state);
 }
 
 fn render_confirmation_dialog(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {

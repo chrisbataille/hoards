@@ -3,6 +3,7 @@ pub mod cli;
 pub mod commands;
 pub mod config;
 pub mod db;
+pub mod discover;
 pub mod github;
 pub mod history;
 pub mod http;
@@ -51,8 +52,8 @@ pub use commands::{
 // AI commands
 pub use commands::{
     cmd_ai_analyze, cmd_ai_bundle_cheatsheet, cmd_ai_categorize, cmd_ai_cheatsheet,
-    cmd_ai_describe, cmd_ai_discover, cmd_ai_extract, cmd_ai_migrate, cmd_ai_set, cmd_ai_show,
-    cmd_ai_suggest_bundle, cmd_ai_test,
+    cmd_ai_describe, cmd_ai_discover, cmd_ai_extract, cmd_ai_migrate, cmd_ai_model, cmd_ai_set,
+    cmd_ai_show, cmd_ai_suggest_bundle, cmd_ai_test,
 };
 
 // Bundle commands
@@ -100,3 +101,10 @@ pub use scanner::{
 
 // Sources
 pub use sources::{PackageSource, all_sources, get_source, source_for};
+
+// Discover (for TUI external search)
+pub use discover::{
+    AiSearch, AptSearch, BrewSearch, CratesIoSearch, DiscoverResult, GitHubSearch, InstallOption,
+    NpmSearch, PyPISearch, SearchSource, deduplicate_results, filter_github_results,
+    get_enabled_sources,
+};

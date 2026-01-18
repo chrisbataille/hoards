@@ -32,6 +32,7 @@ use hoards::{
     cmd_ai_discover,
     cmd_ai_extract,
     cmd_ai_migrate,
+    cmd_ai_model,
     cmd_ai_set,
     cmd_ai_show,
     cmd_ai_suggest_bundle,
@@ -304,6 +305,7 @@ fn main() -> Result<()> {
         Commands::Ai(command) => match command {
             AiCommands::Config(config_cmd) => match config_cmd {
                 AiConfigCommands::Set { provider } => cmd_ai_set(&provider),
+                AiConfigCommands::Model { model } => cmd_ai_model(&model),
                 AiConfigCommands::Show => cmd_ai_show(),
                 AiConfigCommands::Test => cmd_ai_test(),
                 _ => unreachable!("all AiConfigCommands variants covered"),
