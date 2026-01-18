@@ -48,6 +48,37 @@ pub fn cmd_ai_set(provider: &str) -> Result<()> {
     Ok(())
 }
 
+/// Set the Claude model to use
+pub fn cmd_ai_model(model: &str) -> Result<()> {
+    use crate::config::ClaudeModel;
+
+    let claude_model = ClaudeModel::from(model);
+
+    let mut config = HoardConfig::load()?;
+
+    // Warn if provider is not Claude
+    if config.ai.provider != AiProvider::Claude {
+        println!(
+            "{} Note: Claude model set to '{}', but current provider is '{}'",
+            "!".yellow(),
+            claude_model,
+            config.ai.provider
+        );
+        println!("  The model setting will only be used when provider is set to 'claude'.");
+    }
+
+    config.ai.claude_model = claude_model;
+    config.save()?;
+
+    println!("{} Claude model set to '{}'", "+".green(), claude_model);
+    println!(
+        "  Config saved to: {}",
+        HoardConfig::config_path()?.display()
+    );
+
+    Ok(())
+}
+
 /// Show current AI configuration
 pub fn cmd_ai_show() -> Result<()> {
     let config = HoardConfig::load()?;
@@ -69,6 +100,11 @@ pub fn cmd_ai_show() -> Result<()> {
 
     if let Some(cmd) = provider.command() {
         println!("Command:  {}", cmd);
+    }
+
+    // Show Claude model if provider is Claude
+    if *provider == AiProvider::Claude {
+        println!("Model:    {}", config.ai.claude_model.to_string().cyan());
     }
 
     println!();
@@ -1096,8 +1132,18 @@ pub fn cmd_ai_discover(
         installed_tools.len()
     );
 
+    // Get enabled sources from config for AI to recommend from
+    let config = crate::config::HoardConfig::load().unwrap_or_default();
+    let enabled_sources: Vec<&str> = config.sources.enabled_sources();
+
+    println!(
+        "{} Enabled sources: {}",
+        ">".dimmed(),
+        enabled_sources.join(", ")
+    );
+
     // Generate prompt and call AI with spinner
-    let prompt = discovery_prompt(query, &installed_tools);
+    let prompt = discovery_prompt(query, &installed_tools, &enabled_sources);
 
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(

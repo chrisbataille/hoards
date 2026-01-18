@@ -12,6 +12,7 @@
 
 mod bundles;
 mod configs;
+mod discover;
 mod extractions;
 mod github;
 mod labels;
@@ -20,6 +21,7 @@ mod tools;
 mod usage;
 
 // Re-export commonly used types
+pub use discover::DiscoverSearchEntry;
 pub use extractions::CachedExtraction;
 pub use github::{GitHubInfo, GitHubInfoInput};
 pub use usage::ToolUsage;

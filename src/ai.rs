@@ -139,6 +139,9 @@ User's context: {{QUERY}}
 
 Already installed tools: {{INSTALLED_TOOLS}}
 
+IMPORTANT - Only recommend tools from these package sources: {{ENABLED_SOURCES}}
+Do NOT recommend tools that cannot be installed from the enabled sources above.
+
 Guidelines:
 1. Recommend 5-10 highly relevant tools
 2. Categorize as "essential" (must-have) or "recommended" (nice-to-have)
@@ -146,6 +149,7 @@ Guidelines:
 4. Focus on well-maintained, popular tools
 5. Include the exact install command for each
 6. Be specific about why each tool is relevant
+7. ONLY use sources from the enabled list above
 
 Respond with JSON:
 {
@@ -418,8 +422,11 @@ pub fn invoke_ai(prompt: &str) -> Result<String> {
     // Build the command based on provider
     let output = match provider {
         AiProvider::Claude => {
-            // claude -p "prompt" for non-interactive mode
+            // claude --model <model> -p "prompt" for non-interactive mode
+            let model = config.ai.claude_model.as_cli_arg();
             Command::new(cmd_name)
+                .arg("--model")
+                .arg(model)
                 .arg("-p")
                 .arg(prompt)
                 .output()
@@ -892,7 +899,11 @@ pub fn bundle_cheatsheet_prompt(
 }
 
 /// Generate a discovery prompt from user query and context
-pub fn discovery_prompt(query: &str, installed_tools: &[String]) -> String {
+pub fn discovery_prompt(
+    query: &str,
+    installed_tools: &[String],
+    enabled_sources: &[&str],
+) -> String {
     let template = load_prompt("discovery", DEFAULT_DISCOVERY_PROMPT);
 
     let installed_list = if installed_tools.is_empty() {
@@ -901,9 +912,16 @@ pub fn discovery_prompt(query: &str, installed_tools: &[String]) -> String {
         installed_tools.join(", ")
     };
 
+    let sources_list = if enabled_sources.is_empty() {
+        "cargo, pip, npm, apt, brew".to_string() // Default to all if none specified
+    } else {
+        enabled_sources.join(", ")
+    };
+
     template
         .replace("{{QUERY}}", query)
         .replace("{{INSTALLED_TOOLS}}", &installed_list)
+        .replace("{{ENABLED_SOURCES}}", &sources_list)
 }
 
 /// Parse discovery response from AI

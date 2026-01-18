@@ -7,7 +7,7 @@ mod event;
 pub mod theme;
 mod ui;
 
-pub use app::App;
+pub use app::{App, DiscoverResult, DiscoverSource, InstallOption};
 pub use theme::{Theme, ThemeVariant};
 
 use anyhow::Result;
@@ -62,6 +62,9 @@ fn run_app(terminal: &mut Tui, app: &mut App, db: &Database) -> Result<()> {
     while app.running {
         terminal.draw(|frame| ui::render(frame, app, db))?;
         event::handle_events(app, db)?;
+
+        // Clean up expired notifications
+        app.tick_notifications();
 
         // Execute background operations step by step with loading indicator
         while app.has_background_op() {

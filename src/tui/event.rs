@@ -40,6 +40,69 @@ fn handle_key_event(app: &mut App, key: KeyEvent, db: &Database) {
         return;
     }
 
+    // Handle error modal (highest priority - blocks all input)
+    if app.has_error_modal() {
+        if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
+            app.close_error_modal();
+        }
+        return;
+    }
+
+    // Handle README popup
+    if app.has_readme_popup() {
+        // Check if link picker is showing
+        let showing_links = app
+            .readme_popup
+            .as_ref()
+            .map(|p| p.show_links)
+            .unwrap_or(false);
+
+        if showing_links {
+            // Link picker mode
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    // Close link picker, not the whole popup
+                    if let Some(popup) = &mut app.readme_popup {
+                        popup.show_links = false;
+                    }
+                }
+                KeyCode::Char('j') | KeyCode::Down => app.select_next_link(),
+                KeyCode::Char('k') | KeyCode::Up => app.select_prev_link(),
+                KeyCode::Enter => app.open_selected_link(),
+                _ => {}
+            }
+        } else {
+            // Normal README viewing mode
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('q') => app.close_readme(),
+                KeyCode::Char('j') | KeyCode::Down => app.scroll_readme_down(1),
+                KeyCode::Char('k') | KeyCode::Up => app.scroll_readme_up(1),
+                KeyCode::Char('o') => app.toggle_readme_links(), // Open link picker
+                KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    app.scroll_readme_down(10)
+                }
+                KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    app.scroll_readme_up(10)
+                }
+                KeyCode::PageDown => app.scroll_readme_down(20),
+                KeyCode::PageUp => app.scroll_readme_up(20),
+                KeyCode::Home | KeyCode::Char('g') => {
+                    if let Some(popup) = &mut app.readme_popup {
+                        popup.scroll_offset = 0;
+                    }
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    // Scroll to bottom (will be clamped by render)
+                    if let Some(popup) = &mut app.readme_popup {
+                        popup.scroll_offset = u16::MAX;
+                    }
+                }
+                _ => {}
+            }
+        }
+        return;
+    }
+
     // Handle overlays (help, config menu, and details popup)
     if app.show_help {
         if matches!(
@@ -163,10 +226,12 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         KeyCode::Char('q') => app.quit(),
         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => app.quit(),
 
-        // Navigation - vim style (handles both tools and bundles)
+        // Navigation - vim style (handles tools, bundles, and discover results)
         KeyCode::Char('j') | KeyCode::Down => {
             if app.tab == Tab::Bundles {
                 app.select_next_bundle();
+            } else if app.tab == Tab::Discover {
+                app.select_next_discover();
             } else {
                 app.select_next();
             }
@@ -174,6 +239,8 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         KeyCode::Char('k') | KeyCode::Up => {
             if app.tab == Tab::Bundles {
                 app.select_prev_bundle();
+            } else if app.tab == Tab::Discover {
+                app.select_prev_discover();
             } else {
                 app.select_prev();
             }
@@ -181,6 +248,8 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         KeyCode::Char('g') => {
             if app.tab == Tab::Bundles {
                 app.select_first_bundle();
+            } else if app.tab == Tab::Discover {
+                app.select_first_discover();
             } else {
                 app.select_first();
             }
@@ -188,6 +257,8 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         KeyCode::Char('G') => {
             if app.tab == Tab::Bundles {
                 app.select_last_bundle();
+            } else if app.tab == Tab::Discover {
+                app.select_last_discover();
             } else {
                 app.select_last();
             }
@@ -237,7 +308,28 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         KeyCode::Esc => app.clear_search(),
 
         // Sort
-        KeyCode::Char('s') => app.cycle_sort(),
+        KeyCode::Char('s') => {
+            if app.tab == Tab::Discover {
+                app.cycle_discover_sort();
+            } else {
+                app.cycle_sort();
+            }
+        }
+
+        // Discover tab: Toggle AI mode (Shift+A)
+        KeyCode::Char('A') if app.tab == Tab::Discover => {
+            app.toggle_discover_ai();
+        }
+
+        // Discover tab: Toggle source filters dynamically
+        // F1-F6 map to available sources based on their index in config
+        KeyCode::F(n @ 1..=6) if app.tab == Tab::Discover => {
+            let available = app.get_available_discover_sources();
+            let index = (n - 1) as usize;
+            if let Some((key, _, _)) = available.get(index) {
+                app.toggle_discover_source_filter(key);
+            }
+        }
 
         // Selection
         KeyCode::Char(' ') => {
@@ -262,7 +354,19 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         KeyCode::Char('u') => app.request_update(),    // Update tools with available updates
 
         // Details popup (for narrow terminals or quick view)
-        KeyCode::Enter => app.toggle_details_popup(),
+        // For Discover tab, open README popup
+        KeyCode::Enter => {
+            if app.tab == Tab::Discover {
+                // Open README popup with markdown rendering
+                if let Some(result) = app.selected_discover() {
+                    let name = result.name.clone();
+                    let url = result.url.clone();
+                    app.open_readme(name, url.as_deref());
+                }
+            } else {
+                app.toggle_details_popup();
+            }
+        }
 
         // Help
         KeyCode::Char('?') => app.toggle_help(),
@@ -292,15 +396,47 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
 }
 
 fn handle_search_mode(app: &mut App, key: KeyEvent, _db: &Database) {
-    match key.code {
-        KeyCode::Esc => app.exit_search(),
-        KeyCode::Enter => {
-            // TODO: Execute search
-            app.exit_search();
+    // Discover tab has different search behavior
+    if app.tab == Tab::Discover {
+        match key.code {
+            KeyCode::Esc => {
+                app.exit_search();
+            }
+            KeyCode::Enter => {
+                // Save search to history and trigger external search
+                app.save_discover_search_to_history(_db);
+                app.exit_search();
+                app.start_discover_search();
+            }
+            KeyCode::Up => {
+                // Navigate to previous (older) history entry
+                app.discover_history_up();
+            }
+            KeyCode::Down => {
+                // Navigate to next (newer) history entry
+                app.discover_history_down();
+            }
+            KeyCode::Backspace => {
+                app.discover_query.pop();
+                app.discover_history_index = None; // Reset history when typing
+            }
+            KeyCode::Char(c) => {
+                app.discover_query.push(c);
+                app.discover_history_index = None; // Reset history when typing
+            }
+            _ => {}
         }
-        KeyCode::Backspace => app.search_pop(),
-        KeyCode::Char(c) => app.search_push(c),
-        _ => {}
+    } else {
+        // Standard search for other tabs (local filtering)
+        match key.code {
+            KeyCode::Esc => app.exit_search(),
+            KeyCode::Enter => {
+                app.exit_search();
+            }
+            KeyCode::Backspace => app.search_pop(),
+            KeyCode::Char(c) => app.search_push(c),
+            _ => {}
+        }
     }
 }
 
@@ -323,7 +459,17 @@ fn handle_command_mode(app: &mut App, key: KeyEvent, db: &Database) {
     }
 }
 
-fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &Database) {
+fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, _db: &Database) {
+    // Handle README popup mouse scrolling
+    if app.has_readme_popup() {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => app.scroll_readme_up(3),
+            MouseEventKind::ScrollDown => app.scroll_readme_down(3),
+            _ => {}
+        }
+        return;
+    }
+
     // Handle config menu mouse events separately
     if app.show_config_menu {
         handle_config_menu_mouse(app, mouse);
@@ -331,7 +477,8 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &D
     }
 
     // Don't handle mouse during overlays or special modes
-    if app.show_help || app.show_details_popup || app.has_pending_action() {
+    if app.show_help || app.show_details_popup || app.has_pending_action() || app.has_error_modal()
+    {
         return;
     }
 
@@ -345,6 +492,8 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &D
         MouseEventKind::ScrollUp => {
             if app.tab == Tab::Bundles {
                 app.select_prev_bundle();
+            } else if app.tab == Tab::Discover {
+                app.select_prev_discover();
             } else {
                 app.select_prev();
             }
@@ -353,6 +502,8 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &D
         MouseEventKind::ScrollDown => {
             if app.tab == Tab::Bundles {
                 app.select_next_bundle();
+            } else if app.tab == Tab::Discover {
+                app.select_next_discover();
             } else {
                 app.select_next();
             }
@@ -364,7 +515,7 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &D
 
             // Check if clicking in tab area
             if app.is_in_tab_area(x, y) {
-                app.click_tab(x, db);
+                app.click_tab(x, _db);
                 return;
             }
 

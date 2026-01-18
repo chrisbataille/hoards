@@ -5,9 +5,16 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 
 use crate::Update;
-use crate::config::{AiProvider, HoardConfig, SourcesConfig, TuiTheme, UsageMode};
+use crate::config::{AiProvider, ClaudeModel, HoardConfig, SourcesConfig, TuiTheme, UsageMode};
 use crate::db::{Database, GitHubInfo, ToolUsage};
 use crate::models::{Bundle, InstallSource, Tool};
+
+/// An install option for a discovered tool
+#[derive(Debug, Clone)]
+pub struct InstallOption {
+    pub source: DiscoverSource,
+    pub install_command: String,
+}
 
 /// A search result from the Discover tab
 #[derive(Debug, Clone)]
@@ -17,6 +24,16 @@ pub struct DiscoverResult {
     pub source: DiscoverSource,
     pub stars: Option<u64>,
     pub url: Option<String>,
+    pub install_options: Vec<InstallOption>,
+}
+
+impl DiscoverResult {
+    /// Get the primary install command
+    pub fn install_command(&self) -> Option<&str> {
+        self.install_options
+            .first()
+            .map(|o| o.install_command.as_str())
+    }
 }
 
 /// Source of a discover result
@@ -62,6 +79,7 @@ impl DiscoverSource {
 pub enum ConfigSection {
     #[default]
     AiProvider,
+    ClaudeModel, // Only relevant when Claude is selected
     Theme,
     Sources,
     UsageMode,
@@ -72,6 +90,7 @@ impl ConfigSection {
     pub fn all() -> &'static [ConfigSection] {
         &[
             ConfigSection::AiProvider,
+            ConfigSection::ClaudeModel,
             ConfigSection::Theme,
             ConfigSection::Sources,
             ConfigSection::UsageMode,
@@ -81,7 +100,8 @@ impl ConfigSection {
 
     pub fn next(&self) -> ConfigSection {
         match self {
-            ConfigSection::AiProvider => ConfigSection::Theme,
+            ConfigSection::AiProvider => ConfigSection::ClaudeModel,
+            ConfigSection::ClaudeModel => ConfigSection::Theme,
             ConfigSection::Theme => ConfigSection::Sources,
             ConfigSection::Sources => ConfigSection::UsageMode,
             ConfigSection::UsageMode => ConfigSection::Buttons,
@@ -92,7 +112,8 @@ impl ConfigSection {
     pub fn prev(&self) -> ConfigSection {
         match self {
             ConfigSection::AiProvider => ConfigSection::Buttons,
-            ConfigSection::Theme => ConfigSection::AiProvider,
+            ConfigSection::ClaudeModel => ConfigSection::AiProvider,
+            ConfigSection::Theme => ConfigSection::ClaudeModel,
             ConfigSection::Sources => ConfigSection::Theme,
             ConfigSection::UsageMode => ConfigSection::Sources,
             ConfigSection::Buttons => ConfigSection::UsageMode,
@@ -105,21 +126,24 @@ impl ConfigSection {
     /// Layout (without custom theme description):
     /// - Lines 0-5: AI Provider (header + 5 options)
     /// - Line 6: empty
-    /// - Lines 7-14: Theme (header + 7 options)
-    /// - Line 15: empty
-    /// - Lines 16-23: Sources (header + 7 options)
-    /// - Line 24: empty
-    /// - Lines 25-27: Usage (header + 2 options)
-    /// - Line 28: empty
-    /// - Line 29: Buttons
+    /// - Lines 7-10: Claude Model (header + 3 options)
+    /// - Line 11: empty
+    /// - Lines 12-19: Theme (header + 7 options)
+    /// - Line 20: empty
+    /// - Lines 21-28: Sources (header + 7 options)
+    /// - Line 29: empty
+    /// - Lines 30-32: Usage (header + 2 options)
+    /// - Line 33: empty
+    /// - Line 34: Buttons
     pub fn start_line(&self, custom_theme_selected: bool) -> usize {
         let theme_extra = if custom_theme_selected { 1 } else { 0 };
         match self {
             Self::AiProvider => 0,
-            Self::Theme => 7,
-            Self::Sources => 16 + theme_extra,
-            Self::UsageMode => 25 + theme_extra,
-            Self::Buttons => 29 + theme_extra,
+            Self::ClaudeModel => 7,
+            Self::Theme => 12,
+            Self::Sources => 21 + theme_extra,
+            Self::UsageMode => 30 + theme_extra,
+            Self::Buttons => 34 + theme_extra,
         }
     }
 
@@ -129,21 +153,23 @@ impl ConfigSection {
         let theme_extra = if custom_theme_selected { 1 } else { 0 };
         match self {
             Self::AiProvider => (1, 5),                              // 5 AI providers
-            Self::Theme => (8, 14),                                  // 7 themes (indices 0-6)
-            Self::Sources => (17 + theme_extra, 23 + theme_extra),   // 7 sources
-            Self::UsageMode => (26 + theme_extra, 27 + theme_extra), // 2 modes
-            Self::Buttons => (29 + theme_extra, 29 + theme_extra),   // 1 line
+            Self::ClaudeModel => (8, 10), // 3 models (Haiku, Sonnet, Opus)
+            Self::Theme => (13, 19),      // 7 themes (indices 0-6)
+            Self::Sources => (22 + theme_extra, 28 + theme_extra), // 7 sources
+            Self::UsageMode => (31 + theme_extra, 32 + theme_extra), // 2 modes
+            Self::Buttons => (34 + theme_extra, 34 + theme_extra), // 1 line
         }
     }
 
     /// Number of selectable items in this section
     pub fn item_count(&self) -> usize {
         match self {
-            Self::AiProvider => 5, // None, Claude, Gemini, Codex, Opencode
-            Self::Theme => 7,      // 6 built-in + Custom
-            Self::Sources => 7,    // cargo, apt, pip, npm, brew, flatpak, manual
-            Self::UsageMode => 2,  // Scan, Hook
-            Self::Buttons => 2,    // Save, Cancel
+            Self::AiProvider => 5,  // None, Claude, Gemini, Codex, Opencode
+            Self::ClaudeModel => 3, // Haiku, Sonnet, Opus
+            Self::Theme => 7,       // 6 built-in + Custom
+            Self::Sources => 7,     // cargo, apt, pip, npm, brew, flatpak, manual
+            Self::UsageMode => 2,   // Scan, Hook
+            Self::Buttons => 2,     // Save, Cancel
         }
     }
 }
@@ -151,7 +177,8 @@ impl ConfigSection {
 /// Config menu layout constants
 pub mod config_menu_layout {
     /// Base number of lines in config menu (without custom theme description)
-    pub const TOTAL_LINES_BASE: usize = 30;
+    /// Updated for Claude Model section: 35 lines total
+    pub const TOTAL_LINES_BASE: usize = 35;
     /// Extra line when custom theme is selected (for file path hint)
     pub const CUSTOM_THEME_EXTRA_LINES: usize = 1;
     /// Index of custom theme
@@ -174,6 +201,8 @@ pub struct ConfigMenuState {
     pub section: ConfigSection,
     /// Selected index within current section (for radio buttons)
     pub ai_selected: usize,
+    /// Claude model selection (0=Haiku, 1=Sonnet, 2=Opus)
+    pub claude_model_selected: usize,
     pub theme_selected: usize,
     pub usage_selected: usize,
     /// Source toggles (separate state for checkboxes)
@@ -190,7 +219,8 @@ impl Default for ConfigMenuState {
     fn default() -> Self {
         Self {
             section: ConfigSection::AiProvider,
-            ai_selected: 0, // None
+            ai_selected: 0,           // None
+            claude_model_selected: 0, // Haiku (default)
             theme_selected: 0,
             usage_selected: 0, // Scan
             sources: SourcesConfig::default(),
@@ -210,6 +240,11 @@ impl ConfigMenuState {
                 .iter()
                 .position(|p| *p == config.ai.provider)
                 .unwrap_or(0),
+            claude_model_selected: match config.ai.claude_model {
+                ClaudeModel::Haiku => 0,
+                ClaudeModel::Sonnet => 1,
+                ClaudeModel::Opus => 2,
+            },
             theme_selected: config.tui.theme.index(),
             usage_selected: match config.usage.mode {
                 UsageMode::Scan => 0,
@@ -226,6 +261,11 @@ impl ConfigMenuState {
     pub fn to_config(&self) -> HoardConfig {
         let mut config = HoardConfig::default();
         config.ai.provider = AiProvider::all()[self.ai_selected];
+        config.ai.claude_model = match self.claude_model_selected {
+            0 => ClaudeModel::Haiku,
+            1 => ClaudeModel::Sonnet,
+            _ => ClaudeModel::Opus,
+        };
         config.tui.theme = TuiTheme::from_index(self.theme_selected);
         config.usage.mode = if self.usage_selected == 0 {
             UsageMode::Scan
@@ -242,6 +282,9 @@ impl ConfigMenuState {
         match self.section {
             ConfigSection::AiProvider => {
                 self.ai_selected = (self.ai_selected + 1) % count;
+            }
+            ConfigSection::ClaudeModel => {
+                self.claude_model_selected = (self.claude_model_selected + 1) % count;
             }
             ConfigSection::Theme => {
                 self.theme_selected = (self.theme_selected + 1) % count;
@@ -267,6 +310,13 @@ impl ConfigMenuState {
                     count - 1
                 } else {
                     self.ai_selected - 1
+                };
+            }
+            ConfigSection::ClaudeModel => {
+                self.claude_model_selected = if self.claude_model_selected == 0 {
+                    count - 1
+                } else {
+                    self.claude_model_selected - 1
                 };
             }
             ConfigSection::Theme => {
@@ -514,13 +564,21 @@ pub enum InputMode {
 /// Background operation that needs loading indicator
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackgroundOp {
-    CheckUpdates { step: usize },
+    CheckUpdates {
+        step: usize,
+    },
+    DiscoverSearch {
+        query: String,
+        step: usize,
+        source_names: Vec<String>,
+    },
 }
 
 impl BackgroundOp {
     pub fn title(&self) -> &'static str {
         match self {
             BackgroundOp::CheckUpdates { .. } => "Checking for Updates",
+            BackgroundOp::DiscoverSearch { .. } => "Searching",
         }
     }
 }
@@ -660,6 +718,81 @@ pub struct StatusMessage {
     pub is_error: bool,
 }
 
+/// Notification level for toast display
+#[derive(Debug, Clone, PartialEq)]
+pub enum NotificationLevel {
+    Info,
+    Warning,
+    Error,
+}
+
+/// Toast notification with auto-dismiss
+#[derive(Debug, Clone)]
+pub struct Notification {
+    pub text: String,
+    pub level: NotificationLevel,
+    pub created_at: std::time::Instant,
+}
+
+impl Notification {
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            level: NotificationLevel::Info,
+            created_at: std::time::Instant::now(),
+        }
+    }
+
+    pub fn warning(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            level: NotificationLevel::Warning,
+            created_at: std::time::Instant::now(),
+        }
+    }
+
+    pub fn error(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            level: NotificationLevel::Error,
+            created_at: std::time::Instant::now(),
+        }
+    }
+
+    /// Duration before auto-dismiss (errors stay longer)
+    pub fn dismiss_duration(&self) -> std::time::Duration {
+        match self.level {
+            NotificationLevel::Info => std::time::Duration::from_secs(3),
+            NotificationLevel::Warning => std::time::Duration::from_secs(5),
+            NotificationLevel::Error => std::time::Duration::from_secs(8),
+        }
+    }
+
+    /// Check if notification should be dismissed
+    pub fn should_dismiss(&self) -> bool {
+        self.created_at.elapsed() >= self.dismiss_duration()
+    }
+}
+
+/// Modal error popup that blocks until dismissed
+#[derive(Debug, Clone)]
+pub struct ErrorModal {
+    pub title: String,
+    pub message: String,
+}
+
+/// README popup with markdown content
+#[derive(Debug, Clone)]
+pub struct ReadmePopup {
+    pub tool_name: String,
+    pub content: String,
+    pub scroll_offset: u16,
+    pub loading: bool,
+    pub links: Vec<(String, String)>, // (text, url) pairs
+    pub show_links: bool,             // Whether to show link picker
+    pub selected_link: usize,         // Currently selected link in picker
+}
+
 /// Sort options for tool list
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortBy {
@@ -683,6 +816,33 @@ impl SortBy {
             SortBy::Name => "name",
             SortBy::Usage => "usage",
             SortBy::Recent => "recent",
+        }
+    }
+}
+
+/// Sort options for discover results
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DiscoverSortBy {
+    #[default]
+    Stars,
+    Name,
+    Source,
+}
+
+impl DiscoverSortBy {
+    pub fn next(&self) -> DiscoverSortBy {
+        match self {
+            DiscoverSortBy::Stars => DiscoverSortBy::Name,
+            DiscoverSortBy::Name => DiscoverSortBy::Source,
+            DiscoverSortBy::Source => DiscoverSortBy::Stars,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            DiscoverSortBy::Stars => "stars",
+            DiscoverSortBy::Name => "name",
+            DiscoverSortBy::Source => "source",
         }
     }
 }
@@ -1042,10 +1202,35 @@ pub struct App {
     pub discover_results: Vec<DiscoverResult>,
     pub discover_selected: usize,
     pub discover_loading: bool,
+    pub discover_sort_by: DiscoverSortBy,
+    pub discover_ai_enabled: bool,                // AI search toggle
+    pub discover_source_filters: HashSet<String>, // Selected source filters
+    pub discover_history: Vec<crate::db::DiscoverSearchEntry>, // Search history
+    pub discover_history_index: Option<usize>,    // Current position in history (None = new)
+    pub discover_filter_focus: Option<usize>,     // Focused filter chip index
 
     // Config menu state
     pub show_config_menu: bool,
     pub config_menu: ConfigMenuState,
+
+    // Toast notifications (auto-dismiss)
+    pub notifications: Vec<Notification>,
+
+    // Error modal (blocks until dismissed)
+    pub error_modal: Option<ErrorModal>,
+
+    // README popup
+    pub readme_popup: Option<ReadmePopup>,
+
+    // Async AI operation tracking
+    pub ai_operation: Option<AiOperation>,
+}
+
+/// Tracks an async AI operation running in a background thread
+pub struct AiOperation {
+    pub start_time: std::time::Instant,
+    pub thread_handle:
+        std::thread::JoinHandle<Result<Vec<crate::discover::DiscoverResult>, String>>,
 }
 
 impl App {
@@ -1108,8 +1293,23 @@ impl App {
             discover_results: Vec::new(),
             discover_selected: 0,
             discover_loading: false,
+            discover_sort_by: DiscoverSortBy::default(),
+            discover_ai_enabled: false,
+            discover_source_filters: config
+                .sources
+                .enabled_sources()
+                .into_iter()
+                .map(String::from)
+                .collect(),
+            discover_history: db.get_discover_history(100).unwrap_or_default(),
+            discover_history_index: None,
+            discover_filter_focus: None,
             show_config_menu,
             config_menu,
+            notifications: Vec::new(),
+            error_modal: None,
+            readme_popup: None,
+            ai_operation: None,
         })
     }
 
@@ -1434,6 +1634,299 @@ impl App {
         self.bundles.last();
     }
 
+    /// Move discover selection down
+    pub fn select_next_discover(&mut self) {
+        if !self.discover_results.is_empty() {
+            self.discover_selected =
+                (self.discover_selected + 1).min(self.discover_results.len() - 1);
+        }
+    }
+
+    /// Move discover selection up
+    pub fn select_prev_discover(&mut self) {
+        if self.discover_selected > 0 {
+            self.discover_selected -= 1;
+        }
+    }
+
+    /// Move discover selection to top
+    pub fn select_first_discover(&mut self) {
+        self.discover_selected = 0;
+    }
+
+    /// Move discover selection to bottom
+    pub fn select_last_discover(&mut self) {
+        if !self.discover_results.is_empty() {
+            self.discover_selected = self.discover_results.len() - 1;
+        }
+    }
+
+    /// Get the currently selected discover result
+    pub fn selected_discover(&self) -> Option<&DiscoverResult> {
+        self.discover_results.get(self.discover_selected)
+    }
+
+    /// Cycle discover sort option
+    pub fn cycle_discover_sort(&mut self) {
+        self.discover_sort_by = self.discover_sort_by.next();
+        self.sort_discover_results();
+    }
+
+    /// Sort discover results based on current sort option
+    pub fn sort_discover_results(&mut self) {
+        match self.discover_sort_by {
+            DiscoverSortBy::Stars => {
+                self.discover_results
+                    .sort_by(|a, b| match (b.stars, a.stars) {
+                        (Some(bs), Some(as_)) => bs.cmp(&as_),
+                        (Some(_), None) => std::cmp::Ordering::Less,
+                        (None, Some(_)) => std::cmp::Ordering::Greater,
+                        (None, None) => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+                    });
+            }
+            DiscoverSortBy::Name => {
+                self.discover_results
+                    .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+            }
+            DiscoverSortBy::Source => {
+                self.discover_results.sort_by(|a, b| {
+                    let source_order = |s: &DiscoverSource| match s {
+                        DiscoverSource::CratesIo => 0,
+                        DiscoverSource::Npm => 1,
+                        DiscoverSource::PyPI => 2,
+                        DiscoverSource::Homebrew => 3,
+                        DiscoverSource::Apt => 4,
+                        DiscoverSource::GitHub => 5,
+                        DiscoverSource::AI => 6,
+                    };
+                    source_order(&a.source)
+                        .cmp(&source_order(&b.source))
+                        .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                });
+            }
+        }
+        // Reset selection to top after sorting
+        self.discover_selected = 0;
+    }
+
+    /// Open URL for the selected discover result
+    pub fn open_discover_url(&mut self) {
+        if let Some(result) = self.selected_discover() {
+            if let Some(url) = &result.url {
+                // Spawn browser with stdout/stderr suppressed to avoid corrupting TUI
+                let spawn_result = {
+                    #[cfg(target_os = "linux")]
+                    {
+                        std::process::Command::new("xdg-open")
+                            .arg(url)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn()
+                    }
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        std::process::Command::new("open")
+                            .arg(url)
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn()
+                    }
+
+                    #[cfg(target_os = "windows")]
+                    {
+                        std::process::Command::new("cmd")
+                            .args(["/C", "start", "", url])
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn()
+                    }
+                };
+
+                match spawn_result {
+                    Ok(_) => self.set_status(format!("Opening {}", url), false),
+                    Err(e) => self.set_error(format!("Failed to open URL: {}", e)),
+                }
+            } else {
+                self.set_status("No URL available for this result", false);
+            }
+        }
+    }
+
+    /// Toggle AI search mode for discover
+    pub fn toggle_discover_ai(&mut self) {
+        self.discover_ai_enabled = !self.discover_ai_enabled;
+        self.discover_history_index = None; // Reset history navigation
+    }
+
+    /// Toggle a source filter for discover search
+    pub fn toggle_discover_source_filter(&mut self, source: &str) {
+        if self.discover_source_filters.contains(source) {
+            self.discover_source_filters.remove(source);
+        } else {
+            self.discover_source_filters.insert(source.to_string());
+        }
+        self.discover_history_index = None; // Reset history navigation
+    }
+
+    /// Get all available discover sources based on config
+    /// Returns (source_key, icon, display_name) tuples for sources that are:
+    /// 1. Enabled in config (for package managers)
+    /// 2. Have search capability
+    pub fn get_available_discover_sources(
+        &self,
+    ) -> Vec<(&'static str, &'static str, &'static str)> {
+        use crate::config::HoardConfig;
+
+        let config = HoardConfig::load().unwrap_or_default();
+        let mut sources = Vec::new();
+
+        // Only show sources that are enabled in config and have search capability
+        if config.sources.cargo {
+            sources.push(("cargo", "🦀", "cargo"));
+        }
+        if config.sources.npm {
+            sources.push(("npm", "📦", "npm"));
+        }
+        if config.sources.pip {
+            sources.push(("pip", "🐍", "pip"));
+        }
+        if config.sources.brew {
+            sources.push(("brew", "🍺", "brew"));
+        }
+        if config.sources.apt {
+            sources.push(("apt", "📋", "apt"));
+        }
+        // GitHub is always available if gh CLI is installed
+        if self.gh_available {
+            sources.push(("github", "🐙", "GitHub"));
+        }
+
+        sources
+    }
+
+    /// Refresh discover source filters from config (call after config changes)
+    pub fn refresh_discover_sources(&mut self) {
+        use crate::config::HoardConfig;
+
+        let config = HoardConfig::load().unwrap_or_default();
+        let enabled = config.sources.enabled_sources();
+
+        // Remove any filters that are no longer available
+        self.discover_source_filters
+            .retain(|s| enabled.contains(&s.as_str()) || s == "github");
+
+        // Add github if gh is available and not already present
+        if self.gh_available && !self.discover_source_filters.contains("github") {
+            self.discover_source_filters.insert("github".to_string());
+        }
+    }
+
+    /// Navigate to previous (older) search in history
+    pub fn discover_history_up(&mut self) {
+        if self.discover_history.is_empty() {
+            return;
+        }
+
+        match self.discover_history_index {
+            None => {
+                // First time going into history - save current state and go to most recent
+                self.discover_history_index = Some(0);
+            }
+            Some(idx) => {
+                // Go to older entry
+                if idx + 1 < self.discover_history.len() {
+                    self.discover_history_index = Some(idx + 1);
+                }
+            }
+        }
+
+        // Apply the history entry
+        self.apply_history_entry();
+    }
+
+    /// Navigate to next (newer) search in history
+    pub fn discover_history_down(&mut self) {
+        if self.discover_history.is_empty() {
+            return;
+        }
+
+        match self.discover_history_index {
+            None => {
+                // Already at "new search" state, nothing to do
+            }
+            Some(0) => {
+                // At most recent - go back to "new search"
+                self.discover_history_index = None;
+                self.discover_query.clear();
+                // Reset to default filters from config
+                if let Ok(config) = crate::config::HoardConfig::load() {
+                    self.discover_source_filters = config
+                        .sources
+                        .enabled_sources()
+                        .into_iter()
+                        .map(String::from)
+                        .collect();
+                }
+                self.discover_ai_enabled = false;
+            }
+            Some(idx) => {
+                // Go to newer entry
+                self.discover_history_index = Some(idx - 1);
+                self.apply_history_entry();
+            }
+        }
+    }
+
+    /// Apply the current history entry to search state
+    fn apply_history_entry(&mut self) {
+        if let Some(idx) = self.discover_history_index
+            && let Some(entry) = self.discover_history.get(idx)
+        {
+            self.discover_query = entry.query.clone();
+            self.discover_ai_enabled = entry.ai_enabled;
+            self.discover_source_filters = entry.source_filters.iter().cloned().collect();
+        }
+    }
+
+    /// Save current search to history (called when search is executed)
+    pub fn save_discover_search_to_history(&mut self, db: &crate::db::Database) {
+        let query = self.discover_query.trim();
+        if query.is_empty() {
+            return;
+        }
+
+        let filters: Vec<String> = self.discover_source_filters.iter().cloned().collect();
+
+        // Save to database
+        if let Ok(id) = db.save_discover_search(query, self.discover_ai_enabled, &filters) {
+            // Add to in-memory history (prepend as most recent)
+            self.discover_history.insert(
+                0,
+                crate::db::DiscoverSearchEntry {
+                    id,
+                    query: query.to_string(),
+                    ai_enabled: self.discover_ai_enabled,
+                    source_filters: filters,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                },
+            );
+
+            // Keep only last 100 entries in memory
+            if self.discover_history.len() > 100 {
+                self.discover_history.truncate(100);
+            }
+        }
+
+        // Reset history navigation index
+        self.discover_history_index = None;
+    }
+
+    /// Check if a source is enabled for discover search
+    pub fn is_discover_source_enabled(&self, source: &str) -> bool {
+        self.discover_source_filters.contains(source)
+    }
+
     /// Get the currently selected bundle
     pub fn selected_bundle(&self) -> Option<&Bundle> {
         self.bundles.selected_bundle()
@@ -1483,6 +1976,8 @@ impl App {
             self.ai_available = config.ai.provider != AiProvider::None;
         }
         self.show_config_menu = false;
+        // Refresh discover sources in case config changed
+        self.refresh_discover_sources();
     }
 
     /// Save config from menu and close
@@ -1503,6 +1998,8 @@ impl App {
         }
 
         self.show_config_menu = false;
+        // Refresh discover sources based on new config
+        self.refresh_discover_sources();
     }
 
     /// Navigate config menu sections (with auto-scroll)
@@ -2021,6 +2518,12 @@ impl App {
             // Handle bundle list clicks
             let target_index = row as usize; // Bundles don't scroll currently
             self.bundles.select(target_index);
+        } else if self.tab == Tab::Discover {
+            // Handle discover list clicks
+            let target_index = row as usize;
+            if target_index < self.discover_results.len() {
+                self.discover_selected = target_index;
+            }
         } else {
             // Handle tool list clicks
             let target_index = self.list_offset + row as usize;
@@ -2346,6 +2849,471 @@ impl App {
         });
     }
 
+    /// Set an error message (convenience wrapper for set_status with is_error=true)
+    pub fn set_error(&mut self, text: impl Into<String>) {
+        self.set_status(text, true);
+    }
+
+    // ========================================================================
+    // Toast Notifications
+    // ========================================================================
+
+    /// Add an info toast notification
+    pub fn notify_info(&mut self, text: impl Into<String>) {
+        self.notifications.push(Notification::info(text));
+    }
+
+    /// Add a warning toast notification
+    pub fn notify_warning(&mut self, text: impl Into<String>) {
+        self.notifications.push(Notification::warning(text));
+    }
+
+    /// Add an error toast notification
+    pub fn notify_error(&mut self, text: impl Into<String>) {
+        self.notifications.push(Notification::error(text));
+    }
+
+    /// Remove expired notifications (call this in main loop tick)
+    pub fn tick_notifications(&mut self) {
+        self.notifications.retain(|n| !n.should_dismiss());
+    }
+
+    /// Dismiss all notifications
+    pub fn clear_notifications(&mut self) {
+        self.notifications.clear();
+    }
+
+    // ========================================================================
+    // Error Modal
+    // ========================================================================
+
+    /// Show a modal error dialog (blocks until dismissed)
+    pub fn show_error_modal(&mut self, title: impl Into<String>, message: impl Into<String>) {
+        self.error_modal = Some(ErrorModal {
+            title: title.into(),
+            message: message.into(),
+        });
+    }
+
+    /// Close the error modal
+    pub fn close_error_modal(&mut self) {
+        self.error_modal = None;
+    }
+
+    /// Check if error modal is showing
+    pub fn has_error_modal(&self) -> bool {
+        self.error_modal.is_some()
+    }
+
+    // ========================================================================
+    // README Popup
+    // ========================================================================
+
+    /// Start loading README for a discover result
+    pub fn open_readme(&mut self, tool_name: String, url: Option<&str>) {
+        if let Some(url) = url {
+            // Try to get GitHub URL (directly or from package registry metadata)
+            let github_url = if url.contains("github.com") {
+                Some(url.to_string())
+            } else if url.contains("crates.io") {
+                // Try to get repository URL from crates.io API
+                Self::fetch_crates_io_repo_url(&tool_name)
+            } else if url.contains("npmjs.com") {
+                // Try to get repository URL from npm API
+                Self::fetch_npm_repo_url(&tool_name)
+            } else {
+                None
+            };
+
+            match github_url {
+                Some(gh_url) if gh_url.contains("github.com") => {
+                    // We have a GitHub URL - fetch README
+                    let readme_url = Self::github_readme_url(&gh_url);
+
+                    self.readme_popup = Some(ReadmePopup {
+                        tool_name: tool_name.clone(),
+                        content: String::new(),
+                        scroll_offset: 0,
+                        loading: true,
+                        links: Vec::new(),
+                        show_links: false,
+                        selected_link: 0,
+                    });
+
+                    match Self::fetch_readme(&readme_url) {
+                        Ok(content) => {
+                            // Extract links from the content
+                            let links = Self::extract_markdown_links(&content);
+                            if let Some(popup) = &mut self.readme_popup {
+                                popup.content = content;
+                                popup.loading = false;
+                                popup.links = links;
+                            }
+                        }
+                        Err(e) => {
+                            self.readme_popup = None;
+                            self.notify_error(format!("Failed to fetch README: {}", e));
+                        }
+                    }
+                }
+                _ => {
+                    // No GitHub URL available - open package page in browser
+                    self.notify_info(format!("Opening {} in browser", tool_name));
+                    self.open_url(url);
+                }
+            }
+        } else {
+            self.notify_warning(format!("No URL available for {}", tool_name));
+        }
+    }
+
+    /// Extract links from markdown content
+    fn extract_markdown_links(content: &str) -> Vec<(String, String)> {
+        let mut links = Vec::new();
+
+        // Match [text](url) pattern
+        let link_regex = regex::Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
+        for cap in link_regex.captures_iter(content) {
+            let text = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+            let url = cap.get(2).map(|m| m.as_str()).unwrap_or("");
+            if !url.is_empty() {
+                links.push((text.to_string(), url.to_string()));
+            }
+        }
+
+        // Also match bare URLs
+        let url_regex = regex::Regex::new(r"https?://[^\s\)\]<>]+").unwrap();
+        for mat in url_regex.find_iter(content) {
+            let url = mat.as_str();
+            // Skip if this URL is already in a markdown link
+            if !links.iter().any(|(_, u)| u == url) {
+                links.push((url.to_string(), url.to_string()));
+            }
+        }
+
+        links
+    }
+
+    /// Open a URL in the system browser (with suppressed output)
+    fn open_url(&self, url: &str) {
+        #[cfg(target_os = "linux")]
+        let _ = std::process::Command::new("xdg-open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        #[cfg(target_os = "windows")]
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+
+    /// Fetch repository URL from crates.io API
+    fn fetch_crates_io_repo_url(crate_name: &str) -> Option<String> {
+        use crate::http::HTTP_AGENT;
+
+        let url = format!("https://crates.io/api/v1/crates/{}", crate_name);
+        let response = HTTP_AGENT.get(&url).call().ok()?;
+
+        if response.status() != 200 {
+            return None;
+        }
+
+        let json: serde_json::Value = response.into_body().read_json().ok()?;
+        json["crate"]["repository"]
+            .as_str()
+            .filter(|r| r.contains("github.com"))
+            .map(String::from)
+    }
+
+    /// Fetch repository URL from npm API
+    fn fetch_npm_repo_url(package_name: &str) -> Option<String> {
+        use crate::http::HTTP_AGENT;
+
+        let url = format!("https://registry.npmjs.org/{}", package_name);
+        let response = HTTP_AGENT.get(&url).call().ok()?;
+
+        if response.status() != 200 {
+            return None;
+        }
+
+        let json: serde_json::Value = response.into_body().read_json().ok()?;
+
+        // npm stores repo info in repository.url field
+        json["repository"]["url"]
+            .as_str()
+            .filter(|r| r.contains("github.com"))
+            // npm URLs often have "git+https://" or "git://" prefix
+            .map(|r| {
+                r.trim_start_matches("git+")
+                    .trim_start_matches("git://")
+                    .replace(".git", "")
+            })
+            .map(|r| {
+                if r.starts_with("https://") {
+                    r
+                } else {
+                    format!("https://{}", r)
+                }
+            })
+    }
+
+    /// Convert a GitHub repo URL to raw README URL, resolving redirects via API
+    fn github_readme_url(repo_url: &str) -> String {
+        // Extract user/repo from URL
+        let repo_path = repo_url
+            .strip_prefix("https://github.com/")
+            .or_else(|| repo_url.strip_prefix("http://github.com/"))
+            .unwrap_or(repo_url)
+            .trim_end_matches('/')
+            .trim_end_matches(".git");
+
+        // Try to resolve actual repo location via GitHub API (handles renames/transfers)
+        let resolved_path =
+            Self::resolve_github_repo(repo_path).unwrap_or_else(|| repo_path.to_string());
+
+        // Get default branch (usually main or master)
+        let branch =
+            Self::get_github_default_branch(&resolved_path).unwrap_or_else(|| "HEAD".to_string());
+
+        // Find actual README filename via API
+        let readme_name =
+            Self::find_readme_filename(&resolved_path).unwrap_or_else(|| "README.md".to_string());
+
+        format!(
+            "https://raw.githubusercontent.com/{}/{}/{}",
+            resolved_path, branch, readme_name
+        )
+    }
+
+    /// Find the actual README filename in a repo (handles README.md, README.adoc, readme.md, etc.)
+    fn find_readme_filename(repo_path: &str) -> Option<String> {
+        use crate::http::HTTP_AGENT;
+
+        let api_url = format!("https://api.github.com/repos/{}/contents/", repo_path);
+        let response = HTTP_AGENT
+            .get(&api_url)
+            .header("Accept", "application/vnd.github.v3+json")
+            .header("User-Agent", "hoards-cli")
+            .call()
+            .ok()?;
+
+        if response.status() != 200 {
+            return None;
+        }
+
+        let json: serde_json::Value = response.into_body().read_json().ok()?;
+        let files = json.as_array()?;
+
+        // Look for README files (case-insensitive, various extensions)
+        let readme_patterns = [
+            "readme.md",
+            "readme.adoc",
+            "readme.rst",
+            "readme.txt",
+            "readme",
+        ];
+
+        for file in files {
+            if let Some(name) = file["name"].as_str() {
+                let lower_name = name.to_lowercase();
+                for pattern in &readme_patterns {
+                    if lower_name == *pattern {
+                        return Some(name.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Resolve GitHub repo path handling renames and transfers
+    fn resolve_github_repo(repo_path: &str) -> Option<String> {
+        use crate::http::HTTP_AGENT;
+
+        // First try API (faster, works for most repos)
+        let api_url = format!("https://api.github.com/repos/{}", repo_path);
+        let response = HTTP_AGENT
+            .get(&api_url)
+            .header("Accept", "application/vnd.github.v3+json")
+            .header("User-Agent", "hoards-cli")
+            .call()
+            .ok()?;
+
+        if response.status() == 200 {
+            let json: serde_json::Value = response.into_body().read_json().ok()?;
+            if let Some(name) = json["full_name"].as_str() {
+                return Some(name.to_string());
+            }
+        }
+
+        // API failed - manually check for redirect on the web URL
+        let web_url = format!("https://github.com/{}", repo_path);
+
+        // Use a new agent without redirect following
+        let no_redirect_agent = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_secs(5)))
+            .max_redirects(0)
+            .build()
+            .new_agent();
+
+        if let Ok(response) = no_redirect_agent
+            .get(&web_url)
+            .header("User-Agent", "hoards-cli")
+            .call()
+        {
+            let status = response.status();
+            if (status == 301 || status == 302)
+                && let Some(location) = response.headers().get("location")
+                && let Ok(location_str) = location.to_str()
+                && let Some(path) = location_str.strip_prefix("https://github.com/")
+            {
+                let clean_path = path.trim_end_matches('/');
+                if clean_path.matches('/').count() == 1 {
+                    return Some(clean_path.to_string());
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Get the default branch for a GitHub repo
+    fn get_github_default_branch(repo_path: &str) -> Option<String> {
+        use crate::http::HTTP_AGENT;
+
+        let api_url = format!("https://api.github.com/repos/{}", repo_path);
+        let response = HTTP_AGENT
+            .get(&api_url)
+            .header("Accept", "application/vnd.github.v3+json")
+            .header("User-Agent", "hoards-cli")
+            .call()
+            .ok()?;
+
+        if response.status() != 200 {
+            return None;
+        }
+
+        let json: serde_json::Value = response.into_body().read_json().ok()?;
+        json["default_branch"].as_str().map(String::from)
+    }
+
+    /// Fetch README content from URL
+    fn fetch_readme(url: &str) -> anyhow::Result<String> {
+        use crate::http::HTTP_AGENT;
+
+        let response = HTTP_AGENT
+            .get(url)
+            .call()
+            .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+
+        if response.status() != 200 {
+            // Try lowercase readme.md
+            let alt_url = url.replace("README.md", "readme.md");
+            let response = HTTP_AGENT
+                .get(&alt_url)
+                .call()
+                .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+
+            if response.status() != 200 {
+                anyhow::bail!("README not found (status {})", response.status());
+            }
+
+            return response
+                .into_body()
+                .read_to_string()
+                .map_err(|e| anyhow::anyhow!("Failed to read response: {}", e));
+        }
+
+        response
+            .into_body()
+            .read_to_string()
+            .map_err(|e| anyhow::anyhow!("Failed to read response: {}", e))
+    }
+
+    /// Close README popup
+    pub fn close_readme(&mut self) {
+        self.readme_popup = None;
+    }
+
+    /// Scroll README up
+    pub fn scroll_readme_up(&mut self, amount: u16) {
+        if let Some(popup) = &mut self.readme_popup {
+            popup.scroll_offset = popup.scroll_offset.saturating_sub(amount);
+        }
+    }
+
+    /// Scroll README down
+    pub fn scroll_readme_down(&mut self, amount: u16) {
+        if let Some(popup) = &mut self.readme_popup {
+            popup.scroll_offset = popup.scroll_offset.saturating_add(amount);
+        }
+    }
+
+    /// Toggle the link picker in README popup
+    pub fn toggle_readme_links(&mut self) {
+        if let Some(popup) = &mut self.readme_popup {
+            if !popup.links.is_empty() {
+                popup.show_links = !popup.show_links;
+                popup.selected_link = 0;
+            } else {
+                self.notify_info("No links found in this README");
+            }
+        }
+    }
+
+    /// Select next link in picker
+    pub fn select_next_link(&mut self) {
+        if let Some(popup) = &mut self.readme_popup
+            && popup.show_links
+            && !popup.links.is_empty()
+        {
+            popup.selected_link = (popup.selected_link + 1).min(popup.links.len() - 1);
+        }
+    }
+
+    /// Select previous link in picker
+    pub fn select_prev_link(&mut self) {
+        if let Some(popup) = &mut self.readme_popup
+            && popup.show_links
+            && popup.selected_link > 0
+        {
+            popup.selected_link -= 1;
+        }
+    }
+
+    /// Open the currently selected link
+    pub fn open_selected_link(&mut self) {
+        if let Some(popup) = &self.readme_popup
+            && popup.show_links
+            && let Some((_, url)) = popup.links.get(popup.selected_link)
+        {
+            let url = url.clone();
+            self.open_url(&url);
+            self.notify_info(format!("Opening {}", url));
+        }
+        // Close link picker after opening
+        if let Some(popup) = &mut self.readme_popup {
+            popup.show_links = false;
+        }
+    }
+
+    /// Check if README popup is showing
+    pub fn has_readme_popup(&self) -> bool {
+        self.readme_popup.is_some()
+    }
+
     /// Clear status message
     pub fn clear_status(&mut self) {
         self.status_message = None;
@@ -2356,6 +3324,60 @@ impl App {
     /// Schedule a background operation (will be executed by main loop)
     pub fn schedule_op(&mut self, op: BackgroundOp) {
         self.background_op = Some(op);
+    }
+
+    /// Start a discover search operation
+    pub fn start_discover_search(&mut self) {
+        use crate::config::HoardConfig;
+
+        let query = self.discover_query.trim().to_string();
+        if query.is_empty() {
+            return;
+        }
+
+        // Load config only to check AI provider availability
+        let config = HoardConfig::load().unwrap_or_default();
+
+        let mut source_names: Vec<String> = Vec::new();
+
+        // Use app state for AI toggle instead of prefix
+        if self.discover_ai_enabled {
+            // AI-only search
+            if config.ai.provider == crate::config::AiProvider::None {
+                self.set_status("No AI provider configured", true);
+                return;
+            }
+            source_names.push("AI".to_string());
+        } else {
+            // Standard multi-source search using app's source filters
+            for source in &self.discover_source_filters {
+                match source.as_str() {
+                    "cargo" => source_names.push("crates.io".to_string()),
+                    "npm" => source_names.push("npm".to_string()),
+                    "pip" => source_names.push("PyPI".to_string()),
+                    "brew" => source_names.push("Homebrew".to_string()),
+                    "apt" => source_names.push("apt".to_string()),
+                    "github" => {
+                        if self.gh_available {
+                            source_names.push("GitHub".to_string());
+                        }
+                    }
+                    _ => {} // Skip unknown sources
+                }
+            }
+        }
+
+        if source_names.is_empty() {
+            self.set_status("No search sources enabled", true);
+            return;
+        }
+
+        // Schedule the search operation
+        self.schedule_op(BackgroundOp::DiscoverSearch {
+            query: query.clone(),
+            step: 0,
+            source_names,
+        });
     }
 
     /// Check if there's a pending background operation
@@ -2435,6 +3457,299 @@ impl App {
                     false
                 }
             }
+            BackgroundOp::DiscoverSearch {
+                query,
+                step,
+                source_names,
+            } => self.execute_discover_search_step(db, query, step, source_names),
+        }
+    }
+
+    /// Handle async AI search step
+    ///
+    /// AI search is handled specially because it can take a long time.
+    /// We spawn a background thread and poll for completion to show progress.
+    fn handle_ai_search_step(
+        &mut self,
+        db: &Database,
+        query: String,
+        step: usize,
+        source_names: Vec<String>,
+    ) -> bool {
+        use crate::discover::{AiSearch, SearchSource};
+
+        let total_steps = source_names.len();
+
+        // Check if we already have an AI operation running
+        if let Some(ref ai_op) = self.ai_operation {
+            // Check elapsed time for progress display
+            let elapsed = ai_op.start_time.elapsed();
+            let elapsed_secs = elapsed.as_secs();
+
+            self.loading_progress = LoadingProgress {
+                current_step: step + 1,
+                total_steps,
+                step_name: format!("AI ({}.{}s)", elapsed_secs, elapsed.subsec_millis() / 100),
+                found_count: self.discover_results.len(),
+            };
+
+            // Check if the thread is finished (non-blocking)
+            if ai_op.thread_handle.is_finished() {
+                // Take ownership of the operation
+                let ai_op = self.ai_operation.take().unwrap();
+
+                match ai_op.thread_handle.join() {
+                    Ok(Ok(results)) => {
+                        // Accumulate AI results
+                        for r in results {
+                            let install_options: Vec<InstallOption> = r
+                                .install_options
+                                .into_iter()
+                                .map(|o| InstallOption {
+                                    source: o.source,
+                                    install_command: o.install_command,
+                                })
+                                .collect();
+
+                            self.discover_results.push(DiscoverResult {
+                                name: r.name,
+                                description: r.description,
+                                source: r.source,
+                                stars: r.stars,
+                                url: r.url,
+                                install_options,
+                            });
+                        }
+                        self.set_status(
+                            format!("AI search completed in {:.1}s", elapsed.as_secs_f32()),
+                            false,
+                        );
+                    }
+                    Ok(Err(e)) => {
+                        self.set_status(format!("AI search failed: {}", e), true);
+                    }
+                    Err(_) => {
+                        self.set_status("AI search thread panicked", true);
+                    }
+                }
+
+                // Move to next step
+                let next_step = step + 1;
+                if next_step < total_steps {
+                    self.background_op = Some(BackgroundOp::DiscoverSearch {
+                        query,
+                        step: next_step,
+                        source_names,
+                    });
+                    return true;
+                } else {
+                    // AI was the last step - finalize
+                    return self.finalize_discover_search();
+                }
+            }
+
+            // Thread still running - keep polling
+            self.background_op = Some(BackgroundOp::DiscoverSearch {
+                query,
+                step,
+                source_names,
+            });
+            return true;
+        }
+
+        // No AI operation running - start one
+        // Get installed tools for the prompt
+        let installed_tools: Vec<String> = db
+            .list_tools(false, None)
+            .unwrap_or_default()
+            .iter()
+            .map(|t| t.name.clone())
+            .collect();
+
+        // Get enabled sources for AI to recommend from
+        let enabled_sources: Vec<String> = self.discover_source_filters.iter().cloned().collect();
+
+        let query_clone = query.clone();
+
+        // Spawn the AI search in a background thread
+        let thread_handle = std::thread::spawn(move || {
+            let ai_search = AiSearch::new(installed_tools, enabled_sources);
+            ai_search
+                .search(&query_clone, 20)
+                .map_err(|e| e.to_string())
+        });
+
+        self.ai_operation = Some(AiOperation {
+            start_time: std::time::Instant::now(),
+            thread_handle,
+        });
+
+        self.loading_progress = LoadingProgress {
+            current_step: step + 1,
+            total_steps,
+            step_name: "AI (0.0s)".to_string(),
+            found_count: self.discover_results.len(),
+        };
+
+        // Keep polling
+        self.background_op = Some(BackgroundOp::DiscoverSearch {
+            query,
+            step,
+            source_names,
+        });
+        true
+    }
+
+    /// Finalize discover search results (deduplication and status)
+    fn finalize_discover_search(&mut self) -> bool {
+        use crate::discover::deduplicate_results as dedup;
+
+        self.discover_loading = false;
+
+        // Convert to discover module format, deduplicate, then convert back
+        let dedup_input: Vec<crate::discover::DiscoverResult> = self
+            .discover_results
+            .drain(..)
+            .map(|r| {
+                let mut dr = crate::discover::DiscoverResult::new(
+                    r.name,
+                    r.description,
+                    r.source,
+                    r.install_options
+                        .first()
+                        .map(|o| o.install_command.clone())
+                        .unwrap_or_default(),
+                );
+                dr.stars = r.stars;
+                dr.url = r.url;
+                // Add remaining install options
+                for opt in r.install_options.into_iter().skip(1) {
+                    dr.install_options.push(crate::discover::InstallOption {
+                        source: opt.source,
+                        install_command: opt.install_command,
+                    });
+                }
+                dr
+            })
+            .collect();
+
+        let deduped = dedup(dedup_input);
+
+        // Convert back
+        for r in deduped {
+            let install_options: Vec<InstallOption> = r
+                .install_options
+                .into_iter()
+                .map(|o| InstallOption {
+                    source: o.source,
+                    install_command: o.install_command,
+                })
+                .collect();
+
+            self.discover_results.push(DiscoverResult {
+                name: r.name,
+                description: r.description,
+                source: r.source,
+                stars: r.stars,
+                url: r.url,
+                install_options,
+            });
+        }
+
+        let count = self.discover_results.len();
+        if count == 0 {
+            self.set_status("No results found", false);
+        } else {
+            self.set_status(format!("Found {} tool(s)", count), false);
+        }
+        false
+    }
+
+    /// Execute one step of a discover search operation
+    fn execute_discover_search_step(
+        &mut self,
+        db: &Database,
+        query: String,
+        step: usize,
+        source_names: Vec<String>,
+    ) -> bool {
+        use crate::discover::{
+            AptSearch, BrewSearch, CratesIoSearch, GitHubSearch, NpmSearch, PyPISearch,
+            SearchSource,
+        };
+
+        // Initialize on first step
+        if step == 0 {
+            self.discover_results.clear();
+            self.discover_loading = true;
+            self.discover_selected = 0;
+        }
+
+        // Get the current source name
+        let total_steps = source_names.len();
+        let current_source = &source_names[step];
+
+        // Handle AI search specially - it runs async
+        if current_source == "AI" {
+            return self.handle_ai_search_step(db, query, step, source_names);
+        }
+
+        // Update progress for UI
+        self.loading_progress = LoadingProgress {
+            current_step: step + 1,
+            total_steps,
+            step_name: current_source.clone(),
+            found_count: self.discover_results.len(),
+        };
+
+        // Create the appropriate search source and execute (non-AI sources)
+        let search_result: Result<Vec<crate::discover::DiscoverResult>, _> =
+            match current_source.as_str() {
+                "crates.io" => CratesIoSearch.search(&query, 20),
+                "npm" => NpmSearch.search(&query, 20),
+                "PyPI" => PyPISearch.search(&query, 20),
+                "Homebrew" => BrewSearch.search(&query, 20),
+                "apt" => AptSearch.search(&query, 20),
+                "GitHub" => GitHubSearch.search(&query, 20),
+                _ => Ok(Vec::new()),
+            };
+
+        // Convert and accumulate results
+        if let Ok(results) = search_result {
+            for r in results {
+                let install_options: Vec<InstallOption> = r
+                    .install_options
+                    .into_iter()
+                    .map(|o| InstallOption {
+                        source: o.source,
+                        install_command: o.install_command,
+                    })
+                    .collect();
+
+                self.discover_results.push(DiscoverResult {
+                    name: r.name,
+                    description: r.description,
+                    source: r.source,
+                    stars: r.stars,
+                    url: r.url,
+                    install_options,
+                });
+            }
+        }
+
+        // Check if there are more steps
+        let next_step = step + 1;
+        if next_step < total_steps {
+            // More sources to search
+            self.background_op = Some(BackgroundOp::DiscoverSearch {
+                query,
+                step: next_step,
+                source_names,
+            });
+            true
+        } else {
+            // All done - deduplicate and finalize
+            self.finalize_discover_search()
         }
     }
 }

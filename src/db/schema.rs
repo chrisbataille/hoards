@@ -118,6 +118,16 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             content TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS discover_search_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            query TEXT NOT NULL,
+            ai_enabled INTEGER NOT NULL DEFAULT 0,
+            source_filters TEXT NOT NULL,  -- JSON array of enabled sources
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_discover_search_history_created ON discover_search_history(created_at DESC);
         "#,
     )?;
 

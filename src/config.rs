@@ -14,6 +14,50 @@ pub enum AiProvider {
     Opencode,
 }
 
+/// Claude model options (when using Claude as AI provider)
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaudeModel {
+    /// Claude Haiku - fastest and most cost-effective
+    #[default]
+    Haiku,
+    /// Claude Sonnet - balanced intelligence and speed  
+    Sonnet,
+    /// Claude Opus - most capable model
+    Opus,
+}
+
+impl ClaudeModel {
+    /// Get the model alias for the Claude CLI
+    pub fn as_cli_arg(&self) -> &'static str {
+        match self {
+            Self::Haiku => "haiku",
+            Self::Sonnet => "sonnet",
+            Self::Opus => "opus",
+        }
+    }
+}
+
+impl std::fmt::Display for ClaudeModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Haiku => write!(f, "haiku"),
+            Self::Sonnet => write!(f, "sonnet"),
+            Self::Opus => write!(f, "opus"),
+        }
+    }
+}
+
+impl From<&str> for ClaudeModel {
+    fn from(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "sonnet" => Self::Sonnet,
+            "opus" => Self::Opus,
+            _ => Self::Haiku, // Default to haiku
+        }
+    }
+}
+
 impl std::fmt::Display for AiProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -106,6 +150,9 @@ pub struct UsageConfig {
 pub struct AiConfig {
     #[serde(default)]
     pub provider: AiProvider,
+    /// Claude model to use (haiku, sonnet, opus) - only applies when provider is Claude
+    #[serde(default)]
+    pub claude_model: ClaudeModel,
 }
 
 /// TUI theme options

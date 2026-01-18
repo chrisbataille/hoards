@@ -737,6 +737,12 @@ pub enum AiConfigCommands {
         provider: String,
     },
 
+    /// Set the Claude model to use (only applies when provider is Claude)
+    Model {
+        /// Claude model (haiku, sonnet, opus)
+        model: String,
+    },
+
     /// Show current AI configuration
     Show,
 

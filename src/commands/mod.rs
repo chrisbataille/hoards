@@ -55,8 +55,8 @@ pub use bundle::{
 // Re-export AI commands
 pub use ai::{
     cmd_ai_analyze, cmd_ai_bundle_cheatsheet, cmd_ai_categorize, cmd_ai_cheatsheet,
-    cmd_ai_describe, cmd_ai_discover, cmd_ai_extract, cmd_ai_migrate, cmd_ai_set, cmd_ai_show,
-    cmd_ai_suggest_bundle, cmd_ai_test, invalidate_cheatsheet_cache,
+    cmd_ai_describe, cmd_ai_discover, cmd_ai_extract, cmd_ai_migrate, cmd_ai_model, cmd_ai_set,
+    cmd_ai_show, cmd_ai_suggest_bundle, cmd_ai_test, invalidate_cheatsheet_cache,
 };
 
 // Re-export GitHub commands
