@@ -1009,7 +1009,16 @@ impl App {
             match op.child.try_wait() {
                 Ok(Some(status)) => {
                     // Process finished - take ownership
-                    let _finished_op = self.install_operation.take().unwrap();
+                    let finished_op = self.install_operation.take().unwrap();
+
+                    // Drain any remaining output from the channel
+                    // (reader threads might still be sending after process exit)
+                    loop {
+                        match finished_op.output_receiver.try_recv() {
+                            Ok(line) => self.install_output.push(line),
+                            Err(_) => break,
+                        }
+                    }
 
                     // Collect stderr lines from output buffer for error message
                     let stderr_output: String = self

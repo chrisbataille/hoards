@@ -66,11 +66,13 @@ fn handle_key_event(app: &mut App, key: KeyEvent, db: &Database) {
                 app.install_output_scroll = app.install_output_scroll.saturating_sub(1);
                 return;
             }
-            // Scroll output down
+            // Scroll output down - allow scrolling to see all content
             KeyCode::Char('j') | KeyCode::Down => {
-                let max_scroll = app.install_output.len().saturating_sub(10); // approx visible
-                if app.install_output_scroll < max_scroll {
-                    app.install_output_scroll += 1;
+                if !app.install_output.is_empty() {
+                    let max_scroll = app.install_output.len().saturating_sub(1);
+                    if app.install_output_scroll < max_scroll {
+                        app.install_output_scroll += 1;
+                    }
                 }
                 return;
             }
@@ -80,8 +82,10 @@ fn handle_key_event(app: &mut App, key: KeyEvent, db: &Database) {
                 return;
             }
             KeyCode::PageDown => {
-                let max_scroll = app.install_output.len().saturating_sub(10);
-                app.install_output_scroll = (app.install_output_scroll + 10).min(max_scroll);
+                if !app.install_output.is_empty() {
+                    let max_scroll = app.install_output.len().saturating_sub(1);
+                    app.install_output_scroll = (app.install_output_scroll + 10).min(max_scroll);
+                }
                 return;
             }
             _ => return, // Ignore other keys during install
@@ -542,8 +546,10 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, _db: &
                 app.install_output_scroll = app.install_output_scroll.saturating_sub(3);
             }
             MouseEventKind::ScrollDown => {
-                let max_scroll = app.install_output.len().saturating_sub(10);
-                app.install_output_scroll = (app.install_output_scroll + 3).min(max_scroll);
+                if !app.install_output.is_empty() {
+                    let max_scroll = app.install_output.len().saturating_sub(1);
+                    app.install_output_scroll = (app.install_output_scroll + 3).min(max_scroll);
+                }
             }
             _ => {}
         }
