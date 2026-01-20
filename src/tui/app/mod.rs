@@ -37,9 +37,9 @@ pub use list_state::BundleState;
 pub use traits::SelectableList;
 pub use types::{
     ActionHistory, BackgroundOp, ConfigMenuState, ConfigSection, DiscoverResult, DiscoverSortBy,
-    DiscoverSource, ErrorModal, InputMode, InstallOption, LoadingProgress, Notification,
-    NotificationLevel, PACKAGE_MANAGERS, PendingAction, ReadmePopup, SortBy, StatusMessage, Tab,
-    config_menu_layout,
+    DiscoverSource, ErrorModal, InputMode, InstallOption, InstallResult, InstallTask,
+    LoadingProgress, Notification, NotificationLevel, PACKAGE_MANAGERS, PendingAction, ReadmePopup,
+    SortBy, StatusMessage, Tab, config_menu_layout,
 };
 
 /// Tracks an async AI operation running in a background thread
@@ -47,6 +47,13 @@ pub struct AiOperation {
     pub start_time: std::time::Instant,
     pub thread_handle:
         std::thread::JoinHandle<Result<Vec<crate::discover::DiscoverResult>, String>>,
+}
+
+/// Tracks a running install command that can be cancelled
+pub struct InstallOperation {
+    pub task_name: String,
+    pub child: std::process::Child,
+    pub start_time: std::time::Instant,
 }
 
 /// Main application state
@@ -133,6 +140,9 @@ pub struct App {
 
     // Async AI operation tracking
     pub ai_operation: Option<AiOperation>,
+
+    // Async install operation tracking (for cancellation)
+    pub install_operation: Option<InstallOperation>,
 }
 
 impl App {
@@ -212,6 +222,7 @@ impl App {
             error_modal: None,
             readme_popup: None,
             ai_operation: None,
+            install_operation: None,
         })
     }
 
@@ -894,6 +905,336 @@ impl App {
                 step,
                 source_names,
             } => self.execute_discover_search_step(db, query, step, source_names),
+            BackgroundOp::ExecuteInstall {
+                tasks,
+                current,
+                results,
+            } => self.execute_install_step(db, tasks, current, results, false),
+            BackgroundOp::ExecuteUpdate {
+                tasks,
+                current,
+                results,
+            } => self.execute_install_step(db, tasks, current, results, true),
         }
+    }
+
+    /// Execute one step of an install/update operation
+    /// Uses spawned processes for cancellation support
+    fn execute_install_step(
+        &mut self,
+        db: &Database,
+        tasks: Vec<InstallTask>,
+        current: usize,
+        mut results: Vec<InstallResult>,
+        is_update: bool,
+    ) -> bool {
+        use crate::commands::install::get_safe_install_command;
+        use crate::models::{InstallSource, Tool};
+        use std::process::Command;
+
+        // Check if all tasks are done
+        if current >= tasks.len() {
+            self.install_operation = None;
+            self.finalize_install(&results, db, is_update);
+            return false; // Done
+        }
+
+        let task = &tasks[current];
+
+        // Update progress with elapsed time if operation is running
+        let elapsed_info = self
+            .install_operation
+            .as_ref()
+            .map(|op| format!(" ({:.1}s)", op.start_time.elapsed().as_secs_f32()))
+            .unwrap_or_default();
+
+        self.loading_progress = LoadingProgress {
+            current_step: current + 1,
+            total_steps: tasks.len(),
+            step_name: format!(
+                "{} {}{}...",
+                if is_update { "Updating" } else { "Installing" },
+                task.name,
+                elapsed_info
+            ),
+            found_count: results.iter().filter(|r| r.success).count(),
+        };
+
+        // Check if we have a running install operation
+        if let Some(ref mut op) = self.install_operation {
+            // Poll the child process (non-blocking)
+            match op.child.try_wait() {
+                Ok(Some(status)) => {
+                    // Process finished - handle result
+                    let result = if status.success() {
+                        // Track database sync warnings separately
+                        let mut db_warning: Option<String> = None;
+
+                        // Upsert tool to database - handles both new tools and existing ones
+                        // First check if tool exists to preserve existing data
+                        let existing = db.get_tool_by_name(&task.name).ok().flatten();
+                        let tool = if let Some(mut t) = existing {
+                            // Update existing tool
+                            t.is_installed = true;
+                            t
+                        } else {
+                            // Create new tool (for discover installs)
+                            Tool::new(&task.name)
+                                .with_source(InstallSource::from(task.source.as_str()))
+                                .installed()
+                        };
+
+                        if let Err(e) = db.upsert_tool(&tool) {
+                            db_warning = Some(format!("DB sync failed: {:#}", e));
+                        }
+
+                        InstallResult {
+                            name: task.name.clone(),
+                            success: true,
+                            error: db_warning,
+                        }
+                    } else {
+                        InstallResult {
+                            name: task.name.clone(),
+                            success: false,
+                            error: Some(format!(
+                                "Command failed with exit code: {}",
+                                status
+                                    .code()
+                                    .map_or("unknown".to_string(), |c| c.to_string())
+                            )),
+                        }
+                    };
+
+                    results.push(result);
+                    self.install_operation = None;
+
+                    // Schedule next task
+                    let next = current + 1;
+                    if is_update {
+                        self.background_op = Some(BackgroundOp::ExecuteUpdate {
+                            tasks,
+                            current: next,
+                            results,
+                        });
+                    } else {
+                        self.background_op = Some(BackgroundOp::ExecuteInstall {
+                            tasks,
+                            current: next,
+                            results,
+                        });
+                    }
+                    return true;
+                }
+                Ok(None) => {
+                    // Still running - keep polling
+                    if is_update {
+                        self.background_op = Some(BackgroundOp::ExecuteUpdate {
+                            tasks,
+                            current,
+                            results,
+                        });
+                    } else {
+                        self.background_op = Some(BackgroundOp::ExecuteInstall {
+                            tasks,
+                            current,
+                            results,
+                        });
+                    }
+                    return true;
+                }
+                Err(e) => {
+                    // Error polling - treat as failure
+                    results.push(InstallResult {
+                        name: task.name.clone(),
+                        success: false,
+                        error: Some(format!("Failed to poll process: {:#}", e)),
+                    });
+                    self.install_operation = None;
+
+                    // Schedule next task
+                    let next = current + 1;
+                    if is_update {
+                        self.background_op = Some(BackgroundOp::ExecuteUpdate {
+                            tasks,
+                            current: next,
+                            results,
+                        });
+                    } else {
+                        self.background_op = Some(BackgroundOp::ExecuteInstall {
+                            tasks,
+                            current: next,
+                            results,
+                        });
+                    }
+                    return true;
+                }
+            }
+        }
+
+        // No running operation - start a new one
+        let result =
+            match get_safe_install_command(&task.name, &task.source, task.version.as_deref()) {
+                Ok(Some(cmd)) => {
+                    // Spawn the command (non-blocking)
+                    // Redirect stdout/stderr to null since TUI owns the terminal
+                    match Command::new(cmd.program)
+                        .args(&cmd.args)
+                        .stdout(std::process::Stdio::null())
+                        .stderr(std::process::Stdio::null())
+                        .spawn()
+                    {
+                        Ok(child) => {
+                            self.install_operation = Some(InstallOperation {
+                                task_name: task.name.clone(),
+                                child,
+                                start_time: std::time::Instant::now(),
+                            });
+
+                            // Keep polling this task
+                            if is_update {
+                                self.background_op = Some(BackgroundOp::ExecuteUpdate {
+                                    tasks,
+                                    current,
+                                    results,
+                                });
+                            } else {
+                                self.background_op = Some(BackgroundOp::ExecuteInstall {
+                                    tasks,
+                                    current,
+                                    results,
+                                });
+                            }
+                            return true;
+                        }
+                        Err(e) => InstallResult {
+                            name: task.name.clone(),
+                            success: false,
+                            error: Some(format!("Failed to spawn command: {:#}", e)),
+                        },
+                    }
+                }
+                Ok(None) => InstallResult {
+                    name: task.name.clone(),
+                    success: false,
+                    error: Some(format!("Unknown install source: {}", task.source)),
+                },
+                Err(e) => InstallResult {
+                    name: task.name.clone(),
+                    success: false,
+                    error: Some(format!("Invalid package name: {:#}", e)),
+                },
+            };
+
+        // Command failed to start - add result and continue to next
+        results.push(result);
+        let next = current + 1;
+        if is_update {
+            self.background_op = Some(BackgroundOp::ExecuteUpdate {
+                tasks,
+                current: next,
+                results,
+            });
+        } else {
+            self.background_op = Some(BackgroundOp::ExecuteInstall {
+                tasks,
+                current: next,
+                results,
+            });
+        }
+        true
+    }
+
+    /// Cancel any running install operation
+    pub fn cancel_install(&mut self) {
+        if let Some(mut op) = self.install_operation.take() {
+            let _ = op.child.kill();
+            self.set_status(format!("Cancelled install of {}", op.task_name), true);
+        }
+        self.background_op = None;
+    }
+
+    /// Finalize install/update operation and show results
+    fn finalize_install(&mut self, results: &[InstallResult], db: &Database, is_update: bool) {
+        let action = if is_update { "update" } else { "install" };
+        let success_count = results.iter().filter(|r| r.success).count();
+        let fail_count = results.len() - success_count;
+
+        // Check for DB sync warnings on successful installs
+        let db_warnings: Vec<_> = results
+            .iter()
+            .filter(|r| r.success && r.error.is_some())
+            .collect();
+
+        if fail_count == 0 {
+            if results.len() == 1 {
+                let mut msg = format!("Successfully {}ed {}", action, results[0].name);
+                if let Some(warning) = &results[0].error {
+                    msg = format!("{} (warning: {})", msg, warning);
+                }
+                self.set_status(msg, !db_warnings.is_empty());
+            } else {
+                let mut msg = format!("Successfully {}ed {} tool(s)", action, success_count);
+                if !db_warnings.is_empty() {
+                    msg = format!("{} ({} DB sync warning(s))", msg, db_warnings.len());
+                }
+                self.set_status(msg, !db_warnings.is_empty());
+            }
+        } else if success_count == 0 {
+            // All failed - show error modal with details
+            let failed_details: Vec<String> = results
+                .iter()
+                .filter(|r| !r.success)
+                .map(|r| {
+                    let err = r.error.as_deref().unwrap_or("Unknown error");
+                    format!("• {}: {}", r.name, err)
+                })
+                .collect();
+
+            let message = if results.len() == 1 {
+                failed_details.first().cloned().unwrap_or_default()
+            } else {
+                failed_details.join("\n")
+            };
+
+            self.show_error_modal(format!("Failed to {}", action), message);
+            self.set_status(format!("Failed to {} {} tool(s)", action, fail_count), true);
+        } else {
+            // Partial success - show error modal for failures
+            let failed_details: Vec<String> = results
+                .iter()
+                .filter(|r| !r.success)
+                .map(|r| {
+                    let err = r.error.as_deref().unwrap_or("Unknown error");
+                    format!("• {}: {}", r.name, err)
+                })
+                .collect();
+
+            self.show_error_modal(
+                format!("Partial {} failure", action),
+                format!(
+                    "Succeeded: {}\nFailed: {}\n\n{}",
+                    success_count,
+                    fail_count,
+                    failed_details.join("\n")
+                ),
+            );
+            self.set_status(
+                format!(
+                    "{}ed {}, {} failed",
+                    if is_update { "Updated" } else { "Installed" },
+                    success_count,
+                    fail_count,
+                ),
+                true,
+            );
+        }
+
+        // Only clear successfully installed tools from selection (keep failed ones for retry)
+        for result in results.iter().filter(|r| r.success) {
+            self.selected_tools.remove(&result.name);
+        }
+
+        self.refresh_tools(db);
     }
 }

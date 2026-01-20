@@ -70,9 +70,18 @@ fn run_app(terminal: &mut Tui, app: &mut App, db: &Database) -> Result<()> {
         while app.has_background_op() {
             // Redraw to show current progress
             terminal.draw(|frame| ui::render(frame, app, db))?;
+
+            // Handle events during background ops (for cancel support)
+            event::handle_events(app, db)?;
+
             // Execute one step (returns true if more steps remain)
             if !app.execute_background_step(db) {
                 break;
+            }
+
+            // Small delay to avoid busy-waiting when polling spawned processes
+            if app.install_operation.is_some() {
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
         }
     }

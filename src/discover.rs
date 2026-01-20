@@ -92,10 +92,12 @@ impl SearchSource for CratesIoSearch {
     }
 
     fn search(&self, query: &str, limit: usize) -> Result<Vec<DiscoverResult>> {
+        // Fetch more results than needed to filter out library-only crates
+        let fetch_limit = limit * 3;
         let url = format!(
             "https://crates.io/api/v1/crates?q={}&per_page={}",
             urlencoding::encode(query),
-            limit
+            fetch_limit
         );
 
         let mut response = HTTP_AGENT
@@ -108,7 +110,7 @@ impl SearchSource for CratesIoSearch {
             .context("Failed to parse crates.io response")?;
 
         let empty_vec = vec![];
-        let crates = response["crates"]
+        let candidates: Vec<_> = response["crates"]
             .as_array()
             .unwrap_or(&empty_vec)
             .iter()
@@ -116,21 +118,72 @@ impl SearchSource for CratesIoSearch {
                 let name = c["name"].as_str()?.to_string();
                 let description = c["description"].as_str().map(String::from);
                 let downloads = c["downloads"].as_u64().unwrap_or(0);
-
-                Some(
-                    DiscoverResult::new(
-                        name.clone(),
-                        description,
-                        DiscoverSource::CratesIo,
-                        format!("cargo install {}", name),
-                    )
-                    .with_stars(downloads / 1000) // Use downloads/1000 as pseudo-stars
-                    .with_url(format!("https://crates.io/crates/{}", name)),
-                )
+                Some((name, description, downloads))
             })
             .collect();
 
+        // Check each crate for binaries (in parallel for speed)
+        let crates: Vec<_> = std::thread::scope(|s| {
+            let handles: Vec<_> = candidates
+                .iter()
+                .map(|(name, description, downloads)| {
+                    let name = name.clone();
+                    let description = description.clone();
+                    let downloads = *downloads;
+                    s.spawn(move || {
+                        if crate_has_binaries(&name) {
+                            Some(
+                                DiscoverResult::new(
+                                    name.clone(),
+                                    description,
+                                    DiscoverSource::CratesIo,
+                                    format!("cargo install {}", name),
+                                )
+                                .with_stars(downloads / 1000)
+                                .with_url(format!("https://crates.io/crates/{}", name)),
+                            )
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+
+            handles
+                .into_iter()
+                .filter_map(|h| h.join().ok().flatten())
+                .take(limit)
+                .collect()
+        });
+
         Ok(crates)
+    }
+}
+
+/// Check if a crate has binaries by fetching its details from crates.io
+fn crate_has_binaries(name: &str) -> bool {
+    let url = format!("https://crates.io/api/v1/crates/{}", name);
+
+    let Ok(mut response) = HTTP_AGENT.get(&url).call() else {
+        // On error, assume it might have binaries (don't filter it out)
+        return true;
+    };
+
+    let Ok(data): Result<serde_json::Value, _> = response.body_mut().read_json() else {
+        return true;
+    };
+
+    // Check if newest version has binaries
+    // The API returns versions array, check the first (newest) one
+    let empty_vec = vec![];
+    let versions = data["versions"].as_array().unwrap_or(&empty_vec);
+
+    if let Some(latest) = versions.first() {
+        let bin_names = latest["bin_names"].as_array().unwrap_or(&empty_vec);
+        !bin_names.is_empty()
+    } else {
+        // No versions found, assume it might have binaries
+        true
     }
 }
 

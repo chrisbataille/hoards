@@ -62,6 +62,37 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Insert or update a tool (upsert) - avoids race conditions on concurrent installs
+    pub fn upsert_tool(&self, tool: &Tool) -> Result<i64> {
+        self.conn.execute(
+            r#"
+            INSERT INTO tools (name, description, category, source, install_command,
+                             binary_name, is_installed, is_favorite, notes, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            ON CONFLICT(name) DO UPDATE SET
+                source = excluded.source,
+                install_command = excluded.install_command,
+                is_installed = excluded.is_installed,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                tool.name,
+                tool.description,
+                tool.category,
+                tool.source.to_string(),
+                tool.install_command,
+                tool.binary_name,
+                tool.is_installed,
+                tool.is_favorite,
+                tool.notes,
+                tool.created_at.to_rfc3339(),
+                tool.updated_at.to_rfc3339(),
+            ],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
     /// Update an existing tool
     pub fn update_tool(&self, tool: &Tool) -> Result<()> {
         let id = tool.id.context("Tool must have an ID to update")?;

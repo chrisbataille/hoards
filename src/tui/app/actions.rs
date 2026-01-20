@@ -3,11 +3,12 @@
 //! This module contains methods for selection, install/uninstall actions,
 //! undo/redo history, and pending action management.
 
+use crate::commands::install::get_install_command_versioned;
 use crate::db::Database;
 use crate::models::Tool;
 
 use super::App;
-use super::types::{PendingAction, UndoableAction};
+use super::types::{DiscoverSource, InstallTask, PendingAction, UndoableAction};
 
 impl App {
     // ========================================================================
@@ -159,9 +160,30 @@ impl App {
     // Install/Uninstall/Update Actions
     // ========================================================================
 
+    /// Build InstallTask from a Tool with optional version
+    /// Always regenerates display_command for consistency and security
+    fn build_install_task(name: &str, source: &str, version: Option<&str>) -> Option<InstallTask> {
+        // Always regenerate display command - don't trust external sources
+        let display_command =
+            get_install_command_versioned(name, source, version).unwrap_or_else(|| {
+                // Fallback display
+                match version {
+                    Some(v) => format!("{} install {}@{}", source, name, v),
+                    None => format!("{} install {}", source, name),
+                }
+            });
+
+        Some(InstallTask {
+            name: name.to_string(),
+            source: source.to_string(),
+            version: version.map(String::from),
+            display_command,
+        })
+    }
+
     /// Request install action for selected tools (or current tool if none selected)
-    pub fn request_install(&mut self) {
-        let tools = if self.selected_tools.is_empty() {
+    pub fn request_install(&mut self, db: &Database) {
+        let tool_names: Vec<String> = if self.selected_tools.is_empty() {
             // Use current tool if nothing selected
             self.selected_tool()
                 .filter(|t| !t.is_installed)
@@ -180,8 +202,21 @@ impl App {
                 .collect()
         };
 
-        if !tools.is_empty() {
-            self.pending_action = Some(PendingAction::Install(tools));
+        if tool_names.is_empty() {
+            return;
+        }
+
+        // Build InstallTask for each tool (need to look up source from db)
+        let tasks: Vec<InstallTask> = tool_names
+            .iter()
+            .filter_map(|name| {
+                let tool = db.get_tool_by_name(name).ok().flatten()?;
+                Self::build_install_task(&tool.name, &tool.source.to_string(), None)
+            })
+            .collect();
+
+        if !tasks.is_empty() {
+            self.pending_action = Some(PendingAction::Install(tasks));
         }
     }
 
@@ -212,8 +247,8 @@ impl App {
     }
 
     /// Request update action for selected tools (or current tool if none selected)
-    pub fn request_update(&mut self) {
-        let tools = if self.selected_tools.is_empty() {
+    pub fn request_update(&mut self, db: &Database) {
+        let tool_names: Vec<String> = if self.selected_tools.is_empty() {
             // Use current tool if it has an update
             self.selected_tool()
                 .filter(|t| self.available_updates.contains_key(&t.name))
@@ -228,9 +263,55 @@ impl App {
                 .collect()
         };
 
-        if !tools.is_empty() {
-            self.pending_action = Some(PendingAction::Update(tools));
+        if tool_names.is_empty() {
+            return;
         }
+
+        // Build InstallTask for each tool with update info
+        let tasks: Vec<InstallTask> = tool_names
+            .iter()
+            .filter_map(|name| {
+                let tool = db.get_tool_by_name(name).ok().flatten()?;
+                let update = self.available_updates.get(name)?;
+                Self::build_install_task(&tool.name, &tool.source.to_string(), Some(&update.latest))
+            })
+            .collect();
+
+        if !tasks.is_empty() {
+            self.pending_action = Some(PendingAction::Update(tasks));
+        }
+    }
+
+    /// Request install for a discovered tool
+    pub fn request_discover_install(&mut self) {
+        let Some(result) = self.selected_discover() else {
+            return;
+        };
+
+        let Some(option) = result.install_options.first() else {
+            self.set_status("No install command available", true);
+            return;
+        };
+
+        // Map DiscoverSource to source string
+        let source = match option.source {
+            DiscoverSource::CratesIo => "cargo",
+            DiscoverSource::PyPI => "pip",
+            DiscoverSource::Npm => "npm",
+            DiscoverSource::Homebrew => "brew",
+            DiscoverSource::Apt => "apt",
+            _ => {
+                self.set_status("Cannot install directly (GitHub/AI source)", true);
+                return;
+            }
+        };
+
+        // Always regenerate display command for security - don't trust external sources
+        let Some(task) = Self::build_install_task(&result.name, source, None) else {
+            self.set_status("Failed to build install command", true);
+            return;
+        };
+        self.pending_action = Some(PendingAction::DiscoverInstall(task));
     }
 
     /// Request install for missing tools in selected bundle
@@ -239,22 +320,21 @@ impl App {
             return;
         };
 
-        // Find tools that aren't installed
-        let missing_tools: Vec<String> = bundle
+        // Find tools that aren't installed and build tasks
+        let tasks: Vec<InstallTask> = bundle
             .tools
             .iter()
-            .filter(|name| {
-                !db.get_tool_by_name(name)
-                    .ok()
-                    .flatten()
-                    .map(|t| t.is_installed)
-                    .unwrap_or(false)
+            .filter_map(|name| {
+                let tool = db.get_tool_by_name(name).ok().flatten()?;
+                if tool.is_installed {
+                    return None;
+                }
+                Self::build_install_task(&tool.name, &tool.source.to_string(), None)
             })
-            .cloned()
             .collect();
 
-        if !missing_tools.is_empty() {
-            self.pending_action = Some(PendingAction::Install(missing_tools));
+        if !tasks.is_empty() {
+            self.pending_action = Some(PendingAction::Install(tasks));
         } else {
             self.set_status("All tools in bundle are already installed", false);
         }

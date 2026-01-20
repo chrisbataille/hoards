@@ -162,8 +162,10 @@ impl App {
             "i" | "install" => {
                 if self.tab == Tab::Bundles {
                     self.request_bundle_install(db);
+                } else if self.tab == Tab::Discover {
+                    self.request_discover_install();
                 } else {
-                    self.request_install();
+                    self.request_install(db);
                 }
                 self.exit_command();
             }
@@ -172,7 +174,7 @@ impl App {
                 self.exit_command();
             }
             "u" | "update" | "upgrade" => {
-                self.request_update();
+                self.request_update(db);
                 self.exit_command();
             }
 

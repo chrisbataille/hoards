@@ -492,83 +492,119 @@ fn render_link_picker(
     frame.render_stateful_widget(list, picker_area, &mut list_state);
 }
 
+/// Maximum number of items to display in confirmation dialogs before truncating
+const MAX_DISPLAY_ITEMS: usize = 5;
+
 /// Render confirmation dialog for install/uninstall/update actions
 pub fn render_confirmation_dialog(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
-    let popup_area = centered_rect(50, 30, area);
+    let popup_area = centered_rect(60, 40, area);
 
-    let (title, description, color) = if let Some(action) = &app.pending_action {
-        match action {
-            PendingAction::Install(tools) => {
-                let desc = action.description();
-                let tool_list = if tools.len() <= 3 {
-                    tools.join(", ")
-                } else {
-                    format!(
-                        "{}, ... and {} more",
-                        tools[..2].join(", "),
-                        tools.len() - 2
-                    )
-                };
-                (
-                    " Install ",
-                    format!("{}\n\nTools: {}", desc, tool_list),
-                    theme.green,
-                )
-            }
-            PendingAction::Uninstall(tools) => {
-                let desc = action.description();
-                let tool_list = if tools.len() <= 3 {
-                    tools.join(", ")
-                } else {
-                    format!(
-                        "{}, ... and {} more",
-                        tools[..2].join(", "),
-                        tools.len() - 2
-                    )
-                };
-                (
-                    " Uninstall ",
-                    format!("{}\n\nTools: {}", desc, tool_list),
-                    theme.red,
-                )
-            }
-            PendingAction::Update(tools) => {
-                let desc = action.description();
-                let tool_list = if tools.len() <= 3 {
-                    tools.join(", ")
-                } else {
-                    format!(
-                        "{}, ... and {} more",
-                        tools[..2].join(", "),
-                        tools.len() - 2
-                    )
-                };
-                (
-                    " Update ",
-                    format!("{}\n\nTools: {}", desc, tool_list),
-                    theme.yellow,
-                )
-            }
-        }
-    } else {
+    let Some(action) = &app.pending_action else {
         return;
     };
 
-    let content = Text::from(vec![
-        Line::from(""),
-        Line::from(Span::styled(description, Style::default().fg(theme.text))),
-        Line::from(""),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("Press ", Style::default().fg(theme.subtext0)),
-            Span::styled("y", Style::default().fg(theme.green).bold()),
-            Span::styled(" to confirm, ", Style::default().fg(theme.subtext0)),
-            Span::styled("n", Style::default().fg(theme.red).bold()),
-            Span::styled(" or ", Style::default().fg(theme.subtext0)),
-            Span::styled("Esc", Style::default().fg(theme.yellow).bold()),
-            Span::styled(" to cancel", Style::default().fg(theme.subtext0)),
-        ]),
-    ]);
+    let (title, lines, color) = match action {
+        PendingAction::Install(tasks) => {
+            let mut lines = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Install {} tool(s)?", tasks.len()),
+                    Style::default().fg(theme.text),
+                )),
+                Line::from(""),
+            ];
+            for task in tasks.iter().take(MAX_DISPLAY_ITEMS) {
+                lines.push(Line::from(vec![
+                    Span::styled("  $ ", Style::default().fg(theme.subtext0)),
+                    Span::styled(&task.display_command, Style::default().fg(theme.green)),
+                ]));
+            }
+            if tasks.len() > MAX_DISPLAY_ITEMS {
+                lines.push(Line::from(Span::styled(
+                    format!("  ... and {} more", tasks.len() - MAX_DISPLAY_ITEMS),
+                    Style::default().fg(theme.subtext0),
+                )));
+            }
+            (" Install ", lines, theme.green)
+        }
+        PendingAction::DiscoverInstall(task) => {
+            let lines = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Install {}?", task.name),
+                    Style::default().fg(theme.text),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  $ ", Style::default().fg(theme.subtext0)),
+                    Span::styled(&task.display_command, Style::default().fg(theme.green)),
+                ]),
+            ];
+            (" Install ", lines, theme.green)
+        }
+        PendingAction::Uninstall(tools) => {
+            let tool_list = if tools.len() <= MAX_DISPLAY_ITEMS {
+                tools.join(", ")
+            } else {
+                format!(
+                    "{}, ... and {} more",
+                    tools[..2].join(", "),
+                    tools.len() - 2
+                )
+            };
+            let lines = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Uninstall {} tool(s)?", tools.len()),
+                    Style::default().fg(theme.text),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Tools: {}", tool_list),
+                    Style::default().fg(theme.red),
+                )),
+            ];
+            (" Uninstall ", lines, theme.red)
+        }
+        PendingAction::Update(tasks) => {
+            let mut lines = vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("Update {} tool(s)?", tasks.len()),
+                    Style::default().fg(theme.text),
+                )),
+                Line::from(""),
+            ];
+            for task in tasks.iter().take(MAX_DISPLAY_ITEMS) {
+                lines.push(Line::from(vec![
+                    Span::styled("  $ ", Style::default().fg(theme.subtext0)),
+                    Span::styled(&task.display_command, Style::default().fg(theme.yellow)),
+                ]));
+            }
+            if tasks.len() > MAX_DISPLAY_ITEMS {
+                lines.push(Line::from(Span::styled(
+                    format!("  ... and {} more", tasks.len() - MAX_DISPLAY_ITEMS),
+                    Style::default().fg(theme.subtext0),
+                )));
+            }
+            (" Update ", lines, theme.yellow)
+        }
+    };
+
+    // Add confirmation hint
+    let mut content_lines = lines;
+    content_lines.push(Line::from(""));
+    content_lines.push(Line::from(vec![
+        Span::styled("Press ", Style::default().fg(theme.subtext0)),
+        Span::styled("y", Style::default().fg(theme.green).bold()),
+        Span::styled(" to confirm, ", Style::default().fg(theme.subtext0)),
+        Span::styled("n", Style::default().fg(theme.red).bold()),
+        Span::styled(" or ", Style::default().fg(theme.subtext0)),
+        Span::styled("Esc", Style::default().fg(theme.yellow).bold()),
+        Span::styled(" to cancel", Style::default().fg(theme.subtext0)),
+    ]));
+
+    let content = Text::from(content_lines);
 
     let popup = Paragraph::new(content)
         .block(

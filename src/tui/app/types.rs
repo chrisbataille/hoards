@@ -435,6 +435,23 @@ pub enum InputMode {
     JumpToLetter, // Waiting for letter input to jump to
 }
 
+/// Info needed to install/update a tool
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallTask {
+    pub name: String,
+    pub source: String,          // "cargo", "pip", etc.
+    pub version: Option<String>, // Target version for updates
+    pub display_command: String, // For confirmation dialog
+}
+
+/// Result of an install/update attempt
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallResult {
+    pub name: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
 /// Background operation that needs loading indicator
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackgroundOp {
@@ -446,6 +463,16 @@ pub enum BackgroundOp {
         step: usize,
         source_names: Vec<String>,
     },
+    ExecuteInstall {
+        tasks: Vec<InstallTask>,
+        current: usize,
+        results: Vec<InstallResult>,
+    },
+    ExecuteUpdate {
+        tasks: Vec<InstallTask>,
+        current: usize,
+        results: Vec<InstallResult>,
+    },
 }
 
 impl BackgroundOp {
@@ -453,6 +480,8 @@ impl BackgroundOp {
         match self {
             BackgroundOp::CheckUpdates { .. } => "Checking for Updates",
             BackgroundOp::DiscoverSearch { .. } => "Searching",
+            BackgroundOp::ExecuteInstall { .. } => "Installing",
+            BackgroundOp::ExecuteUpdate { .. } => "Updating",
         }
     }
 }
@@ -478,19 +507,20 @@ pub const PACKAGE_MANAGERS: &[(&str, &str)] = &[
 /// Pending action requiring confirmation
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PendingAction {
-    Install(Vec<String>),   // Tool names to install
-    Uninstall(Vec<String>), // Tool names to uninstall
-    Update(Vec<String>),    // Tool names to update
+    Install(Vec<InstallTask>),    // Tools to install (with metadata)
+    Uninstall(Vec<String>),       // Tool names to uninstall
+    Update(Vec<InstallTask>),     // Tools to update (with metadata)
+    DiscoverInstall(InstallTask), // Single discover install
 }
 
 impl PendingAction {
     pub fn description(&self) -> String {
         match self {
-            PendingAction::Install(tools) => {
-                if tools.len() == 1 {
-                    format!("Install {}?", tools[0])
+            PendingAction::Install(tasks) => {
+                if tasks.len() == 1 {
+                    format!("Install {}?", tasks[0].name)
                 } else {
-                    format!("Install {} tools?", tools.len())
+                    format!("Install {} tools?", tasks.len())
                 }
             }
             PendingAction::Uninstall(tools) => {
@@ -500,19 +530,36 @@ impl PendingAction {
                     format!("Uninstall {} tools?", tools.len())
                 }
             }
-            PendingAction::Update(tools) => {
-                if tools.len() == 1 {
-                    format!("Update {}?", tools[0])
+            PendingAction::Update(tasks) => {
+                if tasks.len() == 1 {
+                    format!("Update {}?", tasks[0].name)
                 } else {
-                    format!("Update {} tools?", tools.len())
+                    format!("Update {} tools?", tasks.len())
                 }
+            }
+            PendingAction::DiscoverInstall(task) => {
+                format!("Install {}?", task.name)
             }
         }
     }
 
-    pub fn tools(&self) -> &[String] {
+    /// Get tool names for display
+    pub fn tool_names(&self) -> Vec<&str> {
         match self {
-            PendingAction::Install(t) | PendingAction::Uninstall(t) | PendingAction::Update(t) => t,
+            PendingAction::Install(tasks) => tasks.iter().map(|t| t.name.as_str()).collect(),
+            PendingAction::Uninstall(tools) => tools.iter().map(|s| s.as_str()).collect(),
+            PendingAction::Update(tasks) => tasks.iter().map(|t| t.name.as_str()).collect(),
+            PendingAction::DiscoverInstall(task) => vec![task.name.as_str()],
+        }
+    }
+
+    /// Get install tasks (for Install/Update/DiscoverInstall)
+    pub fn install_tasks(&self) -> Option<Vec<&InstallTask>> {
+        match self {
+            PendingAction::Install(tasks) => Some(tasks.iter().collect()),
+            PendingAction::Update(tasks) => Some(tasks.iter().collect()),
+            PendingAction::DiscoverInstall(task) => Some(vec![task]),
+            PendingAction::Uninstall(_) => None,
         }
     }
 }

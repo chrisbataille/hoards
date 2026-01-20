@@ -29,7 +29,7 @@ fn handle_key_event(app: &mut App, key: KeyEvent, db: &Database) {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 if let Some(action) = app.confirm_action() {
                     // Execute the action
-                    execute_action(app, &action, db);
+                    execute_action(app, action, db);
                 }
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -45,6 +45,12 @@ fn handle_key_event(app: &mut App, key: KeyEvent, db: &Database) {
         if matches!(key.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
             app.close_error_modal();
         }
+        return;
+    }
+
+    // Handle install operation cancellation (Escape during install)
+    if app.install_operation.is_some() && matches!(key.code, KeyCode::Esc) {
+        app.cancel_install();
         return;
     }
 
@@ -343,15 +349,17 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
         KeyCode::Char('i') => {
             if app.tab == Tab::Bundles {
                 app.request_bundle_install(db);
+            } else if app.tab == Tab::Discover {
+                app.request_discover_install();
             } else {
-                app.request_install();
+                app.request_install(db);
             }
         }
         KeyCode::Char('a') if app.tab == Tab::Bundles => {
             app.track_bundle_tools(db); // Add missing bundle tools to Available
         }
         KeyCode::Char('D') => app.request_uninstall(), // Shift+d for uninstall (safer)
-        KeyCode::Char('u') => app.request_update(),    // Update tools with available updates
+        KeyCode::Char('u') => app.request_update(db),  // Update tools with available updates
 
         // Details popup (for narrow terminals or quick view)
         // For Discover tab, open README popup
@@ -629,30 +637,28 @@ fn handle_config_menu_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) 
 }
 
 /// Execute a confirmed action
-fn execute_action(app: &mut App, action: &PendingAction, db: &Database) {
+fn execute_action(app: &mut App, action: PendingAction, db: &Database) {
+    use super::app::BackgroundOp;
+
     match action {
-        PendingAction::Install(tools) => {
-            // For now, just show status - actual install requires shell commands
-            // which should be done outside the TUI event loop
-            let count = tools.len();
-            if count == 1 {
-                app.set_status(
-                    format!(
-                        "Install {} - use CLI: hoards install {}",
-                        tools[0], tools[0]
-                    ),
-                    false,
-                );
-            } else {
-                app.set_status(
-                    format!("Install {} tools - use CLI for batch install", count),
-                    false,
-                );
-            }
-            app.clear_selection();
+        PendingAction::Install(tasks) => {
+            // Schedule background install operation
+            app.schedule_op(BackgroundOp::ExecuteInstall {
+                tasks,
+                current: 0,
+                results: Vec::new(),
+            });
+        }
+        PendingAction::DiscoverInstall(task) => {
+            // Schedule background install operation (single task)
+            app.schedule_op(BackgroundOp::ExecuteInstall {
+                tasks: vec![task],
+                current: 0,
+                results: Vec::new(),
+            });
         }
         PendingAction::Uninstall(tools) => {
-            // For now, just show status - actual uninstall requires shell commands
+            // Uninstall still uses CLI for now (requires confirmation per tool)
             let count = tools.len();
             if count == 1 {
                 app.set_status(
@@ -669,24 +675,15 @@ fn execute_action(app: &mut App, action: &PendingAction, db: &Database) {
                 );
             }
             app.clear_selection();
+            app.refresh_tools(db);
         }
-        PendingAction::Update(tools) => {
-            // For now, just show status - actual upgrade requires shell commands
-            let count = tools.len();
-            if count == 1 {
-                app.set_status(
-                    format!("Update {} - use CLI: hoards upgrade {}", tools[0], tools[0]),
-                    false,
-                );
-            } else {
-                app.set_status(
-                    format!("Update {} tools - use CLI for batch upgrade", count),
-                    false,
-                );
-            }
-            app.clear_selection();
+        PendingAction::Update(tasks) => {
+            // Schedule background update operation
+            app.schedule_op(BackgroundOp::ExecuteUpdate {
+                tasks,
+                current: 0,
+                results: Vec::new(),
+            });
         }
     }
-    // Refresh tools list after action
-    app.refresh_tools(db);
 }
