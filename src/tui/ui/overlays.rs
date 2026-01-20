@@ -361,13 +361,22 @@ fn render_install_overlay_with_output(
     frame.render_widget(header, chunks[0]);
 
     // Output window - scrollable
+    // Note: Many tools (cargo, etc.) output progress to stderr, so we don't color
+    // all stderr red. Instead, we detect actual error lines by content.
     let output_lines: Vec<Line> = app
         .install_output
         .iter()
         .map(|line| {
+            let content_lower = line.content.to_lowercase();
+            let is_error_line = content_lower.contains("error")
+                || content_lower.contains("failed")
+                || content_lower.contains("cannot")
+                || content_lower.contains("not found");
+
             let color = match line.line_type {
                 OutputLineType::Stdout => theme.text,
-                OutputLineType::Stderr => theme.red,
+                OutputLineType::Stderr if is_error_line => theme.red,
+                OutputLineType::Stderr => theme.subtext0, // Dimmed for normal stderr
                 OutputLineType::Status => theme.blue,
             };
             Line::from(Span::styled(&line.content, Style::default().fg(color)))

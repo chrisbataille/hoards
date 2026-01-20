@@ -1063,6 +1063,20 @@ impl App {
                         }
                     };
 
+                    // Add status line to output
+                    self.install_output.push(OutputLine {
+                        line_type: if result.success {
+                            OutputLineType::Status
+                        } else {
+                            OutputLineType::Stderr
+                        },
+                        content: if result.success {
+                            format!("✓ {} completed", result.name)
+                        } else {
+                            format!("✗ {} failed", result.name)
+                        },
+                    });
+
                     results.push(result);
 
                     // Schedule next task
@@ -1411,6 +1425,10 @@ impl App {
 
     /// Finalize install/update operation and show results
     fn finalize_install(&mut self, results: &[InstallResult], db: &Database, is_update: bool) {
+        // Scroll output to bottom so user sees the final result
+        let visible_lines = 10; // Approximate visible lines
+        self.install_output_scroll = self.install_output.len().saturating_sub(visible_lines);
+
         let action = if is_update { "update" } else { "install" };
         let success_count = results.iter().filter(|r| r.success).count();
         let fail_count = results.len() - success_count;
