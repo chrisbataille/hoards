@@ -1019,30 +1019,110 @@ impl App {
                     // Process finished - take ownership
                     let finished_op = self.install_operation.take().unwrap();
 
+                    // DEBUG: Log to file
+                    use std::io::Write;
+                    let mut log = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open("/tmp/hoards_debug.log")
+                        .ok();
+                    if let Some(ref mut f) = log {
+                        let _ = writeln!(f, "\n=== Process finished: {} ===", task.name);
+                        let _ = writeln!(f, "Exit status: {:?}", status);
+                        let _ = writeln!(f, "Output lines before drain: {}", self.install_output.len());
+                    }
+
                     // Drain any remaining output from the channel
                     // (reader threads might still be sending after process exit)
+                    let mut drained = 0;
                     loop {
                         match finished_op.output_receiver.try_recv() {
-                            Ok(line) => self.install_output.push(line),
+                            Ok(line) => {
+                                if let Some(ref mut f) = log {
+                                    let _ = writeln!(f, "  Drained: [{:?}] {}", line.line_type, &line.content);
+                                }
+                                self.install_output.push(line);
+                                drained += 1;
+                            }
                             Err(_) => break,
                         }
                     }
+                    if let Some(ref mut f) = log {
+                        let _ = writeln!(f, "Drained {} additional lines", drained);
+                        let _ = writeln!(f, "Total output lines: {}", self.install_output.len());
+                        let _ = writeln!(f, "--- All output ---");
+                        for (i, line) in self.install_output.iter().enumerate() {
+                            let _ = writeln!(f, "  {}: [{:?}] {}", i, line.line_type, &line.content);
+                        }
+                    }
 
-                    // Collect stderr lines from output buffer for error message
-                    let stderr_output: String = self
+                    // Collect stderr lines - prioritize actual error lines
+                    let all_stderr: Vec<&str> = self
                         .install_output
                         .iter()
                         .filter(|l| l.line_type == OutputLineType::Stderr)
                         .map(|l| l.content.as_str())
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                        .collect();
+
+                    // Find lines containing error indicators
+                    let error_lines: Vec<&str> = all_stderr
+                        .iter()
+                        .copied()
+                        .filter(|line| {
+                            let lower = line.to_lowercase();
+                            lower.contains("error")
+                                || lower.contains("failed")
+                                || lower.contains("cannot")
+                                || lower.contains("could not")
+                                || lower.contains("sigsegv")
+                                || lower.contains("signal:")
+                        })
+                        .collect();
+
+                    // Use error lines if found, otherwise use last N lines of stderr
+                    let stderr_output = if !error_lines.is_empty() {
+                        // Take last 10 error lines
+                        let last_errors: Vec<&str> = error_lines
+                            .into_iter()
+                            .rev()
+                            .take(10)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect();
+                        last_errors.join("\n")
+                    } else if !all_stderr.is_empty() {
+                        // No explicit errors, take last 15 lines
+                        let last_lines: Vec<&str> = all_stderr
+                            .into_iter()
+                            .rev()
+                            .take(15)
+                            .collect::<Vec<_>>()
+                            .into_iter()
+                            .rev()
+                            .collect();
+                        last_lines.join("\n")
+                    } else {
+                        String::new()
+                    };
+
+                    if let Some(ref mut f) = log {
+                        let _ = writeln!(f, "--- Collected stderr ({} chars) ---", stderr_output.len());
+                        let _ = writeln!(f, "{}", &stderr_output);
+                    }
+
                     let stderr_output = if stderr_output.is_empty() {
                         None
-                    } else if stderr_output.len() > 500 {
-                        Some(format!("{}...", &stderr_output[..500]))
+                    } else if stderr_output.len() > 1000 {
+                        // Truncate from beginning if still too long
+                        Some(format!("...{}", &stderr_output[stderr_output.len() - 1000..]))
                     } else {
                         Some(stderr_output)
                     };
+
+                    if let Some(ref mut f) = log {
+                        let _ = writeln!(f, "Final stderr_output: {:?}", stderr_output);
+                    }
 
                     // Handle result
                     let result = if status.success() {
@@ -1081,12 +1161,21 @@ impl App {
                             Some(stderr) => format!("Exit code {}: {}", exit_code, stderr),
                             None => format!("Command failed with exit code: {}", exit_code),
                         };
+
+                        if let Some(ref mut f) = log {
+                            let _ = writeln!(f, "FAILURE - exit_code: {}, error_msg: {}", exit_code, &error_msg);
+                        }
+
                         InstallResult {
                             name: task.name.clone(),
                             success: false,
                             error: Some(error_msg),
                         }
                     };
+
+                    if let Some(ref mut f) = log {
+                        let _ = writeln!(f, "InstallResult: success={}, error={:?}", result.success, result.error);
+                    }
 
                     // Add status line to output
                     self.install_output.push(OutputLine {

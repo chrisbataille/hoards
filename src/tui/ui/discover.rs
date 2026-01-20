@@ -64,17 +64,20 @@ fn render_discover_search_controls(frame: &mut Frame, app: &App, theme: &Theme, 
     // AI toggle: "[x]🤖" = ~6 chars
     let ai_width = 7u16;
 
-    // Filter chips: each is "F1[x]🦀 " (Fn + checkbox + icon + space) = ~8 chars each
+    // Filter chips: each is "F1[x]🦀 " (Fn + checkbox + icon + space)
+    // Note: emojis display as 2 cells wide in terminal
     let filter_chips_width: u16 = available_sources
         .iter()
         .enumerate()
         .map(|(idx, (_, icon, _))| {
-            // "Fn" (2-3 chars) + "[x]" (3) + icon + space
+            // "Fn" (2-3 chars) + "[x]" (3) + icon (2 for emoji, 1 for nerd font) + space (1)
             let fkey_width = if idx + 1 >= 10 { 3 } else { 2 }; // F1 vs F10
-            (fkey_width + 3 + icon.chars().count() + 1) as u16
+            // Emojis are 2 cells wide, nerd font icons are 1 cell
+            let icon_width = if icon.chars().any(|c| c > '\u{1000}') { 2 } else { 1 };
+            (fkey_width + 3 + icon_width + 1) as u16
         })
         .sum::<u16>()
-        + 4; // borders + padding
+        + 2; // borders only (block has 1 char border on each side)
 
     let min_search_width = 20u16;
     let controls_width = ai_width + filter_chips_width;
