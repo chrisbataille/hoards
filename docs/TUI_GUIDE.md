@@ -74,6 +74,7 @@ hoards
 - **Labels**: Colored tags in brackets
 - **Source Badge**: Installation source (cargo, apt, pip, etc.)
 - **Selection Indicator**: `>` for current, `*` for multi-selected
+- **Version Indicators**: `↑` update available, `⚠` major skipped, `📌` pinned
 
 ---
 
@@ -104,14 +105,20 @@ Shows tools tracked in your database but NOT currently installed.
 - Remove from database (D)
 
 ### 3. Updates Tab
-Shows installed tools that have newer versions available.
+Shows installed tools that have newer versions available, filtered by version policies.
 
-**Columns:** Name, Current Version, Available Version, Source
+**Columns:** Name, Current Version, Available Version, Source, Policy Indicator
+
+**Version Indicators:**
+- `↑` - Update available and allowed by policy
+- `⚠` - Major update available but skipped (stable policy)
+- `📌` - Tool is pinned (no updates)
 
 **Actions available:**
 - Update selected (u)
 - Update all (with confirmation)
 - Check for updates (r to refresh)
+- Cycle version policy (p)
 
 ### 4. Bundles Tab
 Shows your tool bundles (grouped collections).
@@ -248,6 +255,7 @@ The TUI has four distinct input modes:
 | `i` | Install selected tool(s) |
 | `D` | Uninstall/delete selected (with confirmation) |
 | `u` | Update selected tool(s) |
+| `p` | Cycle version policy (latest → stable → pinned) |
 | `Enter` | Toggle details popup |
 | `r` | Refresh current view |
 
@@ -266,6 +274,37 @@ The TUI has four distinct input modes:
 | `c` | Open configuration menu |
 | `t` | Cycle through themes |
 | `q` or `Esc` | Quit (or close popup/menu) |
+
+### Details Popup
+
+Press `Enter` on any tool to view its details popup:
+
+```
+┌─────────────────────────────────────────────┐
+│  ripgrep                                     │
+├─────────────────────────────────────────────┤
+│  Fast regex search tool                      │
+│                                              │
+│  Source:    cargo                            │
+│  Category:  search                           │
+│  Stars:     ★ 48.2K                          │
+│                                              │
+│  Version:   14.0.3 → 14.1.0 (minor)         │
+│  Policy:    stable (from: cargo default)    │
+│                                              │
+│  Labels:    rust, cli, grep, search          │
+└─────────────────────────────────────────────┘
+```
+
+**Version information shown:**
+- **Current version**: Currently installed version
+- **Available version**: Latest available (if different)
+- **Update type**: major, minor, or patch
+- **Policy**: Effective policy and where it's inherited from:
+  - `tool override` - Set directly on this tool
+  - `bundle: <name>` - Inherited from a bundle
+  - `<source> default` - From source-level config
+  - `global default` - Fallback default (stable)
 
 ---
 
@@ -487,6 +526,7 @@ SELECTION                     ACTIONS
 Space       Toggle select    i      Install
 Ctrl+a      Select all       D      Delete/Uninstall
 x           Clear selection  u      Update
+                             p      Cycle version policy
                              Enter  Details popup
                              r      Refresh
 
@@ -495,6 +535,11 @@ MODES                         OTHER
 :           Command mode     c      Config menu
 Esc         Exit mode/popup  t      Cycle theme
                              q      Quit
+
+VERSION INDICATORS
+↑  Update available (allowed by policy)
+⚠  Major update skipped (stable policy)
+📌 Tool is pinned (no updates)
 ```
 
 ---

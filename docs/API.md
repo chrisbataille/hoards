@@ -44,12 +44,32 @@ let source = InstallSource::from("cargo");  // -> InstallSource::Cargo
 let s = InstallSource::Cargo.to_string();   // -> "cargo"
 ```
 
+### `VersionPolicy`
+
+Enum representing update policies for tools.
+
+```rust
+use hoards::VersionPolicy;
+
+#[derive(Default)]
+pub enum VersionPolicy {
+    Latest,   // Accept any version update (major, minor, patch)
+    #[default]
+    Stable,   // Only minor/patch updates (skip major)
+    Pinned,   // Never update
+}
+
+// String conversion
+let policy = VersionPolicy::from("stable");  // -> VersionPolicy::Stable
+let s = VersionPolicy::Stable.to_string();   // -> "stable"
+```
+
 ### `Tool`
 
 Represents a tracked CLI tool.
 
 ```rust
-use hoards::{Tool, InstallSource};
+use hoards::{Tool, InstallSource, VersionPolicy};
 
 pub struct Tool {
     pub id: Option<i64>,
@@ -62,6 +82,9 @@ pub struct Tool {
     pub is_installed: bool,
     pub is_favorite: bool,
     pub notes: Option<String>,
+    pub installed_version: Option<String>,
+    pub available_version: Option<String>,
+    pub version_policy: Option<VersionPolicy>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -73,6 +96,7 @@ let tool = Tool::new("ripgrep")
     .with_category("search")
     .with_binary("rg")
     .with_install_command("cargo install ripgrep")
+    .with_version_policy(VersionPolicy::Stable)
     .installed();
 ```
 
@@ -81,13 +105,14 @@ let tool = Tool::new("ripgrep")
 Represents a collection of tools.
 
 ```rust
-use hoards::Bundle;
+use hoards::{Bundle, VersionPolicy};
 
 pub struct Bundle {
     pub id: Option<i64>,
     pub name: String,
     pub description: Option<String>,
     pub tools: Vec<String>,
+    pub version_policy: Option<VersionPolicy>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -96,7 +121,9 @@ let bundle = Bundle::new("search-tools", vec![
     "ripgrep".into(),
     "fd".into(),
     "bat".into(),
-]).with_description("Modern search tools");
+])
+.with_description("Modern search tools")
+.with_version_policy(VersionPolicy::Latest);
 ```
 
 ## Database Operations
@@ -428,6 +455,11 @@ use hoards::{
     cmd_bundle_install, cmd_bundle_add, cmd_bundle_remove,
     cmd_bundle_delete,
 
+    // Policy commands
+    cmd_policy_set, cmd_policy_clear, cmd_policy_show,
+    cmd_policy_set_source, cmd_policy_clear_source,
+    cmd_policy_set_default, cmd_policy_set_bundle, cmd_policy_clear_bundle,
+
     // AI commands
     cmd_ai_config_set, cmd_ai_config_show, cmd_ai_config_test,
     cmd_ai_enrich, cmd_ai_extract,
@@ -440,6 +472,10 @@ use hoards::{
 
     // Configuration
     HoardConfig,
+
+    // Version Policy
+    VersionPolicy, resolve_policy, policy_source,
+    should_update, UpdateDecision, classify_change, VersionChange,
 
     Database,
 };
@@ -505,6 +541,109 @@ provider = "claude"  # claude, gemini, codex, none
 [usage]
 mode = "hook"        # scan, hook
 shell = "fish"       # fish, bash, zsh (for hook mode)
+
+[version_policy]
+default = "stable"   # latest, stable, pinned
+
+[version_policy.sources]
+cargo = "latest"
+apt = "stable"
+pip = "pinned"
+```
+
+## Version Policy
+
+### Policy Resolution
+
+Policies cascade from most specific to least specific:
+
+```rust
+use hoards::{resolve_policy, policy_source, should_update, UpdateDecision};
+use hoards::{Tool, Bundle, HoardConfig, VersionPolicy};
+
+fn policy_examples(tool: &Tool, bundles: &[Bundle], config: &HoardConfig) {
+    // Resolve effective policy for a tool
+    // Checks: tool override → bundle policy → source default → global default
+    let policy = resolve_policy(tool, bundles, config);
+    println!("Effective policy: {}", policy);
+
+    // Get where the policy comes from
+    let source = policy_source(tool, bundles, config);
+    println!("Policy from: {}", source);
+    // Output: "tool override", "bundle: dev-tools", "cargo default", or "global default"
+}
+```
+
+### Update Decision
+
+```rust
+use hoards::{should_update, UpdateDecision, VersionPolicy};
+
+fn update_examples() {
+    // Check if update should be applied
+    let decision = should_update(
+        Some("1.0.0"),  // current version
+        Some("2.0.0"),  // available version
+        &VersionPolicy::Stable
+    );
+
+    match decision {
+        UpdateDecision::Update => println!("Update available and allowed"),
+        UpdateDecision::SkipMajor => println!("Major update skipped (stable policy)"),
+        UpdateDecision::Pinned => println!("Tool is pinned"),
+        UpdateDecision::UpToDate => println!("Already up to date"),
+        UpdateDecision::Unknown => println!("Cannot determine (missing version)"),
+    }
+
+    // Get icon for display
+    println!("Icon: {}", decision.icon());
+    // "↑" (Update), "⚠" (SkipMajor), "📌" (Pinned), "" (UpToDate/Unknown)
+}
+```
+
+### Version Classification
+
+```rust
+use hoards::{classify_change, VersionChange};
+
+fn classify_examples() {
+    let change = classify_change(Some("1.0.0"), Some("2.0.0"));
+    assert_eq!(change, VersionChange::Major);
+
+    let change = classify_change(Some("1.0.0"), Some("1.1.0"));
+    assert_eq!(change, VersionChange::Minor);
+
+    let change = classify_change(Some("1.0.0"), Some("1.0.1"));
+    assert_eq!(change, VersionChange::Patch);
+
+    // Get label for display
+    println!("Change type: {}", change.label());  // "major", "minor", "patch", "update"
+}
+```
+
+### Database Policy Operations
+
+```rust
+use hoards::{Database, VersionPolicy};
+
+fn db_policy_operations(db: &Database) -> Result<()> {
+    // Set tool version policy
+    db.set_tool_version_policy("ripgrep", Some(&VersionPolicy::Latest))?;
+
+    // Clear tool policy (inherit from bundle/source/global)
+    db.set_tool_version_policy("ripgrep", None)?;
+
+    // Set bundle version policy
+    db.set_bundle_version_policy("dev-tools", Some(&VersionPolicy::Stable))?;
+
+    // Clear bundle policy
+    db.set_bundle_version_policy("dev-tools", None)?;
+
+    // Update tool versions
+    db.update_tool_versions("ripgrep", Some("14.0.3"), Some("14.1.0"))?;
+
+    Ok(())
+}
 ```
 
 ## Error Handling

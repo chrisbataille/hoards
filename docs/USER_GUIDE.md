@@ -9,14 +9,15 @@ A comprehensive guide to using hoards for managing your CLI tools.
 3. [Discovering Tools](#discovering-tools)
 4. [Managing Tools](#managing-tools)
 5. [Using Bundles](#using-bundles)
-6. [Usage Tracking](#usage-tracking)
-7. [Usage Insights](#usage-insights)
-8. [Package Managers](#package-managers)
-9. [AI Features](#ai-features)
-10. [Config Management](#config-management)
-11. [Terminal UI](#terminal-ui)
-12. [Maintenance](#maintenance)
-13. [Troubleshooting](#troubleshooting)
+6. [Version Policies](#version-policies)
+7. [Usage Tracking](#usage-tracking)
+8. [Usage Insights](#usage-insights)
+9. [Package Managers](#package-managers)
+10. [AI Features](#ai-features)
+11. [Config Management](#config-management)
+12. [Terminal UI](#terminal-ui)
+13. [Maintenance](#maintenance)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -343,6 +344,133 @@ hoards bundle install modern-unix
 
 # Skip confirmation
 hoards bundle install modern-unix --force
+```
+
+---
+
+## Version Policies
+
+Version policies control how tools are updated. This gives you fine-grained control over which updates to accept.
+
+### Policy Types
+
+| Policy | Behavior | Use Case |
+|--------|----------|----------|
+| **latest** | Accept any version update | Bleeding edge, test tools |
+| **stable** | Only minor/patch updates (skip major) | Production tools, stability |
+| **pinned** | Never update, keep current version | Critical dependencies |
+
+### Policy Cascade
+
+Policies are resolved in this order (highest to lowest priority):
+1. **Tool-level override** - Policy set directly on the tool
+2. **Bundle policy** - Policy inherited from a bundle containing the tool
+3. **Source default** - Policy set for the package source (cargo, pip, etc.)
+4. **Global default** - Falls back to `stable`
+
+### Setting Policies
+
+#### Tool-Level Policies
+
+```bash
+# Set policy for a specific tool
+hoards policy set ripgrep latest
+hoards policy set production-tool pinned
+
+# Clear tool policy (use inherited)
+hoards policy clear ripgrep
+```
+
+#### Bundle Policies
+
+```bash
+# Set policy for all tools in a bundle
+hoards policy set-bundle dev-tools latest
+hoards policy set-bundle critical-tools pinned
+
+# Clear bundle policy
+hoards policy clear-bundle dev-tools
+```
+
+#### Source Defaults
+
+```bash
+# Set default policy for a package source
+hoards policy set-source cargo latest
+hoards policy set-source apt stable
+hoards policy set-source pip pinned
+
+# Clear source-specific policy
+hoards policy clear-source cargo
+```
+
+#### Global Default
+
+```bash
+# Set the global default policy (affects all tools without specific policies)
+hoards policy set-default stable
+```
+
+### Viewing Policies
+
+```bash
+# Show all configured policies
+hoards policy show
+```
+
+Example output:
+```
+Version Policies
+
+Global Default:
+  stable
+
+Source Defaults:
+  cargo: latest
+  apt: stable
+
+Bundle Policies:
+  dev-tools: latest (5 tools)
+  critical: pinned (3 tools)
+
+Tool Overrides:
+  ripgrep: latest
+  production-db: pinned
+
+Policy Summary:
+  latest - Accept any version update (major, minor, patch)
+  stable - Only accept minor and patch updates (skip major)
+  pinned - Never update, keep current version
+```
+
+### Version Indicators
+
+When viewing tools (in list or TUI), version indicators show update status:
+
+| Icon | Meaning |
+|------|---------|
+| `↑` | Update available (allowed by policy) |
+| `⚠` | Major update skipped (stable policy) |
+| `📌` | Tool is pinned |
+
+### Example Workflow
+
+```bash
+# 1. Set conservative defaults
+hoards policy set-default stable
+
+# 2. Allow bleeding edge for dev tools
+hoards policy set-source cargo latest
+
+# 3. Pin critical production tools
+hoards policy set production-tool pinned
+
+# 4. Create a bundle with its own policy
+hoards bundle create experimental tool1 tool2 tool3
+hoards policy set-bundle experimental latest
+
+# 5. Review all policies
+hoards policy show
 ```
 
 ---
@@ -871,6 +999,15 @@ hoards
 - Command palette with `:`
 - 6 built-in themes (cycle with `t`)
 - Mouse support
+- Version indicators (`↑` update, `⚠` major skipped, `📌` pinned)
+
+### Version Information in TUI
+
+The tool details panel shows version information:
+- **Installed version**: Currently installed version
+- **Available version**: Latest available version
+- **Version policy**: Effective policy and its source (tool, bundle, source, or global)
+- **Update type**: Major, minor, or patch update indicator
 
 For the complete TUI guide, see [TUI_GUIDE.md](TUI_GUIDE.md).
 
