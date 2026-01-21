@@ -10,14 +10,15 @@ A comprehensive guide to using hoards for managing your CLI tools.
 4. [Managing Tools](#managing-tools)
 5. [Using Bundles](#using-bundles)
 6. [Version Policies](#version-policies)
-7. [Usage Tracking](#usage-tracking)
-8. [Usage Insights](#usage-insights)
-9. [Package Managers](#package-managers)
-10. [AI Features](#ai-features)
-11. [Config Management](#config-management)
-12. [Terminal UI](#terminal-ui)
-13. [Maintenance](#maintenance)
-14. [Troubleshooting](#troubleshooting)
+7. [Labels](#labels)
+8. [Usage Tracking](#usage-tracking)
+9. [Usage Insights](#usage-insights)
+10. [Package Managers](#package-managers)
+11. [AI Features](#ai-features)
+12. [Config Management](#config-management)
+13. [Terminal UI](#terminal-ui)
+14. [Maintenance](#maintenance)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -471,6 +472,82 @@ hoards policy set-bundle experimental latest
 
 # 5. Review all policies
 hoards policy show
+```
+
+---
+
+## Labels
+
+Labels help organize and filter your tools. You can add labels manually or auto-generate them based on metadata.
+
+### Managing Labels
+
+```bash
+# Add labels to a tool
+hoards label add ripgrep rust cli search
+
+# Remove labels from a tool
+hoards label remove ripgrep search
+
+# List all labels with counts
+hoards label list
+
+# List labels for a specific tool
+hoards label list ripgrep
+
+# Clear all labels from a tool
+hoards label clear ripgrep
+```
+
+### Auto-Labeling
+
+Auto-labeling generates labels from tool metadata (source, category, language) with AI fallback for tools lacking labels.
+
+```bash
+# Auto-label all tools needing labels
+hoards label auto
+
+# Auto-label a specific tool
+hoards label auto ripgrep
+
+# Re-label even if already labeled
+hoards label auto --force
+
+# Force AI for all tools (skip metadata-only)
+hoards label auto --ai
+
+# Preview what would be labeled
+hoards label auto --dry-run
+```
+
+### Auto-Label During Sync
+
+```bash
+# Include auto-labeling in sync
+hoards sync --labels
+
+# Sync everything including labels
+hoards sync --all
+```
+
+### Label Sources
+
+Auto-labeling uses these sources in order:
+
+| Source | Labels Generated |
+|--------|------------------|
+| Install source | `cargo`, `pip`, `npm`, `apt`, `brew`, etc. |
+| Language | `rust` (from cargo), `python` (from pip), etc. |
+| Category | Whatever category is set on the tool |
+| AI fallback | If < 2 labels from metadata and AI configured |
+
+### Filtering by Label
+
+```bash
+# List tools with a specific label
+hoards discover list --label rust
+
+# In TUI: Press 'l' to open label filter popup
 ```
 
 ---

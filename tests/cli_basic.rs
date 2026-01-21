@@ -210,6 +210,170 @@ fn test_labels() {
     assert!(labels.contains(&"productivity".to_string()));
 }
 
+#[test]
+fn test_label_remove() {
+    let ctx = common::TestContext::new();
+
+    // Add a tool
+    let tool = Tool {
+        id: None,
+        name: "remove-label-tool".to_string(),
+        source: InstallSource::Manual,
+        description: None,
+        category: None,
+        install_command: None,
+        binary_name: None,
+        is_installed: false,
+        is_favorite: false,
+        notes: None,
+        installed_version: None,
+        available_version: None,
+        version_policy: None,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    ctx.db.insert_tool(&tool).expect("Failed to add tool");
+
+    // Add labels
+    ctx.db
+        .add_labels(
+            "remove-label-tool",
+            &["rust".to_string(), "cli".to_string()],
+        )
+        .expect("Failed to add labels");
+
+    // Verify both labels exist
+    let labels = ctx
+        .db
+        .get_labels("remove-label-tool")
+        .expect("Failed to get labels");
+    assert_eq!(labels.len(), 2);
+
+    // Remove one label
+    ctx.db
+        .remove_label("remove-label-tool", "cli")
+        .expect("Failed to remove label");
+
+    // Verify only rust remains
+    let labels = ctx
+        .db
+        .get_labels("remove-label-tool")
+        .expect("Failed to get labels");
+    assert_eq!(labels.len(), 1);
+    assert!(labels.contains(&"rust".to_string()));
+    assert!(!labels.contains(&"cli".to_string()));
+}
+
+#[test]
+fn test_label_counts() {
+    let ctx = common::TestContext::new();
+
+    // Add multiple tools with labels
+    for name in ["tool1", "tool2", "tool3"] {
+        let tool = Tool {
+            id: None,
+            name: name.to_string(),
+            source: InstallSource::Manual,
+            description: None,
+            category: None,
+            install_command: None,
+            binary_name: None,
+            is_installed: false,
+            is_favorite: false,
+            notes: None,
+            installed_version: None,
+            available_version: None,
+            version_policy: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        ctx.db.insert_tool(&tool).expect("Failed to add tool");
+    }
+
+    // Add shared labels
+    ctx.db
+        .add_labels("tool1", &["rust".to_string(), "cli".to_string()])
+        .unwrap();
+    ctx.db
+        .add_labels("tool2", &["rust".to_string(), "search".to_string()])
+        .unwrap();
+    ctx.db.add_labels("tool3", &["rust".to_string()]).unwrap();
+
+    // Check counts
+    let counts = ctx
+        .db
+        .get_label_counts()
+        .expect("Failed to get label counts");
+
+    let rust_count = counts.iter().find(|(l, _)| l == "rust").map(|(_, c)| *c);
+    let cli_count = counts.iter().find(|(l, _)| l == "cli").map(|(_, c)| *c);
+    let search_count = counts.iter().find(|(l, _)| l == "search").map(|(_, c)| *c);
+
+    assert_eq!(rust_count, Some(3)); // All three tools have rust
+    assert_eq!(cli_count, Some(1)); // Only tool1 has cli
+    assert_eq!(search_count, Some(1)); // Only tool2 has search
+}
+
+#[test]
+fn test_list_tools_by_label() {
+    let ctx = common::TestContext::new();
+
+    // Add multiple tools
+    for name in ["cargo-tool", "pip-tool", "npm-tool"] {
+        let tool = Tool {
+            id: None,
+            name: name.to_string(),
+            source: InstallSource::Manual,
+            description: None,
+            category: None,
+            install_command: None,
+            binary_name: None,
+            is_installed: false,
+            is_favorite: false,
+            notes: None,
+            installed_version: None,
+            available_version: None,
+            version_policy: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        ctx.db.insert_tool(&tool).expect("Failed to add tool");
+    }
+
+    // Add labels
+    ctx.db
+        .add_labels("cargo-tool", &["rust".to_string()])
+        .unwrap();
+    ctx.db
+        .add_labels("pip-tool", &["python".to_string()])
+        .unwrap();
+    ctx.db
+        .add_labels("npm-tool", &["javascript".to_string()])
+        .unwrap();
+
+    // List tools by label
+    let rust_tools = ctx
+        .db
+        .list_tools_by_label("rust")
+        .expect("Failed to list by label");
+    assert_eq!(rust_tools.len(), 1);
+    assert_eq!(rust_tools[0].name, "cargo-tool");
+
+    let python_tools = ctx
+        .db
+        .list_tools_by_label("python")
+        .expect("Failed to list by label");
+    assert_eq!(python_tools.len(), 1);
+    assert_eq!(python_tools[0].name, "pip-tool");
+
+    // Non-existent label returns empty
+    let unknown_tools = ctx
+        .db
+        .list_tools_by_label("unknown")
+        .expect("Failed to list by label");
+    assert!(unknown_tools.is_empty());
+}
+
 // ==================== Transaction Atomicity Tests ====================
 
 #[test]

@@ -81,6 +81,7 @@ pub enum Commands {
   hoard sync --scan          # Also discover new tools
   hoard sync --github        # Also fetch GitHub data
   hoard sync --usage         # Also scan shell history
+  hoard sync --labels        # Also auto-label tools
   hoard sync --all           # Do everything")]
     Sync {
         /// Only show what would change (dry run)
@@ -103,7 +104,11 @@ pub enum Commands {
         #[arg(long)]
         descriptions: bool,
 
-        /// Perform all sync operations (scan + github + usage + descriptions)
+        /// Also auto-label tools missing labels
+        #[arg(long)]
+        labels: bool,
+
+        /// Perform all sync operations (scan + github + usage + descriptions + labels)
         #[arg(short, long)]
         all: bool,
 
@@ -285,6 +290,13 @@ pub enum Commands {
     /// Manage version update policies
     #[command(subcommand)]
     Policy(PolicyCommands),
+
+    // ============================================
+    // LABELS
+    // ============================================
+    /// Manage tool labels
+    #[command(subcommand)]
+    Label(LabelCommands),
 
     // ============================================
     // IMPORT/EXPORT
@@ -1136,5 +1148,59 @@ pub enum PolicyCommands {
     ClearBundle {
         /// Bundle name
         name: String,
+    },
+}
+
+#[derive(Subcommand)]
+#[non_exhaustive]
+pub enum LabelCommands {
+    /// Add labels to a tool
+    Add {
+        /// Tool name
+        name: String,
+
+        /// Labels to add
+        #[arg(required = true)]
+        labels: Vec<String>,
+    },
+
+    /// Remove labels from a tool
+    Remove {
+        /// Tool name
+        name: String,
+
+        /// Labels to remove
+        #[arg(required = true)]
+        labels: Vec<String>,
+    },
+
+    /// List all labels or labels for a specific tool
+    List {
+        /// Tool name (optional, shows all labels if omitted)
+        name: Option<String>,
+    },
+
+    /// Clear all labels from a tool
+    Clear {
+        /// Tool name
+        name: String,
+    },
+
+    /// Auto-label tools based on metadata and AI
+    Auto {
+        /// Tool name (optional, labels all tools if omitted)
+        name: Option<String>,
+
+        /// Re-label even if already labeled
+        #[arg(short, long)]
+        force: bool,
+
+        /// Force AI for all (skip metadata-only)
+        #[arg(long)]
+        ai: bool,
+
+        /// Preview what would be labeled
+        #[arg(short, long)]
+        dry_run: bool,
     },
 }

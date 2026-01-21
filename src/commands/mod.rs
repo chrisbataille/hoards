@@ -12,6 +12,7 @@ pub mod github;
 pub mod helpers;
 pub mod insights;
 pub mod install;
+pub mod label;
 pub mod misc;
 pub mod policy;
 pub mod sync;
@@ -89,3 +90,6 @@ pub use policy::{
     cmd_policy_clear, cmd_policy_clear_bundle, cmd_policy_clear_source, cmd_policy_set,
     cmd_policy_set_bundle, cmd_policy_set_default, cmd_policy_set_source, cmd_policy_show,
 };
+
+// Re-export label commands
+pub use label::{cmd_label_add, cmd_label_auto, cmd_label_clear, cmd_label_list, cmd_label_remove};

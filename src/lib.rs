@@ -17,7 +17,8 @@ pub mod version_policy;
 
 pub use cli::{
     AiCommands, AiConfigCommands, BundleCommands, Cli, Commands, CompletionsCommands,
-    ConfigCommands, DiscoverCommands, GhCommands, InsightsCommands, PolicyCommands, UsageCommands,
+    ConfigCommands, DiscoverCommands, GhCommands, InsightsCommands, LabelCommands, PolicyCommands,
+    UsageCommands,
 };
 
 // Core commands
@@ -91,6 +92,11 @@ pub use commands::{cmd_completions_install, cmd_completions_status, cmd_completi
 pub use commands::{
     cmd_policy_clear, cmd_policy_clear_bundle, cmd_policy_clear_source, cmd_policy_set,
     cmd_policy_set_bundle, cmd_policy_set_default, cmd_policy_set_source, cmd_policy_show,
+};
+
+// Label commands
+pub use commands::{
+    cmd_label_add, cmd_label_auto, cmd_label_clear, cmd_label_list, cmd_label_remove,
 };
 
 // Config types

@@ -227,6 +227,7 @@ The TUI has four distinct input modes:
 :install       - Install selected
 :delete        - Delete selected
 :update        - Update selected
+:label auto    - Auto-label selected tool(s)
 :undo / :z     - Undo last action
 :redo / :y     - Redo undone action
 ```
@@ -256,6 +257,8 @@ The TUI has four distinct input modes:
 | `D` | Uninstall/delete selected (with confirmation) |
 | `u` | Update selected tool(s) |
 | `p` | Cycle version policy (latest → stable → pinned) |
+| `l` | Open label filter popup |
+| `L` | Open label edit popup (add/remove labels) |
 | `Enter` | Toggle details popup |
 | `r` | Refresh current view |
 
@@ -527,6 +530,8 @@ Space       Toggle select    i      Install
 Ctrl+a      Select all       D      Delete/Uninstall
 x           Clear selection  u      Update
                              p      Cycle version policy
+                             l      Label filter popup
+                             L      Label edit popup
                              Enter  Details popup
                              r      Refresh
 

@@ -58,6 +58,16 @@ pub fn render(frame: &mut Frame, app: &mut App, db: &Database) {
         dialogs::render_details_popup(frame, app, db, &theme, area);
     }
 
+    // Label filter popup
+    if app.show_label_filter_popup {
+        dialogs::render_label_filter_popup(frame, app, db, &theme, area);
+    }
+
+    // Label edit popup
+    if app.show_label_edit_popup {
+        dialogs::render_label_edit_popup(frame, app, &theme, area);
+    }
+
     // README popup
     if app.has_readme_popup() {
         dialogs::render_readme_popup(frame, app, &theme, area);

@@ -20,6 +20,7 @@ use hoards::{
     GhCommands,
     HoardConfig,
     InsightsCommands,
+    LabelCommands,
     PolicyCommands,
     UsageCommands,
     // Core commands
@@ -82,6 +83,12 @@ use hoards::{
     cmd_init,
     // Install commands
     cmd_install,
+    // Label commands
+    cmd_label_add,
+    cmd_label_auto,
+    cmd_label_clear,
+    cmd_label_list,
+    cmd_label_remove,
     // Usage commands
     cmd_labels,
     cmd_list,
@@ -161,6 +168,7 @@ fn main() -> Result<()> {
             github,
             usage,
             descriptions,
+            labels,
             all,
             limit,
             delay,
@@ -169,6 +177,7 @@ fn main() -> Result<()> {
             let do_github = github || all;
             let do_usage = usage || all;
             let do_descriptions = descriptions || all;
+            let do_labels = labels || all;
 
             // Always sync installation status
             cmd_sync_status(&db, dry_run)?;
@@ -193,6 +202,11 @@ fn main() -> Result<()> {
                 let mut config = HoardConfig::load()?;
                 ensure_usage_configured(&mut config)?;
                 cmd_usage_scan(&db, dry_run, false)?;
+            }
+
+            if do_labels {
+                println!();
+                cmd_label_auto(&db, None, false, false, dry_run)?;
             }
 
             Ok(())
@@ -467,6 +481,23 @@ fn main() -> Result<()> {
             }
             PolicyCommands::ClearBundle { name } => cmd_policy_clear_bundle(&db, &name),
             _ => unreachable!("all PolicyCommands variants covered"),
+        },
+
+        // ============================================
+        // LABELS
+        // ============================================
+        Commands::Label(command) => match command {
+            LabelCommands::Add { name, labels } => cmd_label_add(&db, &name, &labels),
+            LabelCommands::Remove { name, labels } => cmd_label_remove(&db, &name, &labels),
+            LabelCommands::List { name } => cmd_label_list(&db, name.as_deref()),
+            LabelCommands::Clear { name } => cmd_label_clear(&db, &name),
+            LabelCommands::Auto {
+                name,
+                force,
+                ai,
+                dry_run,
+            } => cmd_label_auto(&db, name.as_deref(), force, ai, dry_run),
+            _ => unreachable!("all LabelCommands variants covered"),
         },
 
         // ============================================

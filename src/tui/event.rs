@@ -196,6 +196,16 @@ fn handle_key_event(app: &mut App, key: KeyEvent, db: &Database) {
         return;
     }
 
+    if app.show_label_filter_popup {
+        handle_label_filter_popup(app, key, db);
+        return;
+    }
+
+    if app.show_label_edit_popup {
+        handle_label_edit_popup(app, key, db);
+        return;
+    }
+
     // Clear status message on any key press
     app.clear_status();
 
@@ -318,6 +328,96 @@ fn handle_config_menu(app: &mut App, key: KeyEvent) {
     }
 }
 
+fn handle_label_filter_popup(app: &mut App, key: KeyEvent, db: &Database) {
+    let labels = db.get_all_labels().unwrap_or_default();
+    let total = labels.len() + 1; // +1 for "Clear filter" option
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('l') => {
+            app.close_label_filter_popup();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if app.label_filter_selected > 0 {
+                app.label_filter_selected -= 1;
+            } else {
+                app.label_filter_selected = total.saturating_sub(1);
+            }
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.label_filter_selected = (app.label_filter_selected + 1) % total.max(1);
+        }
+        KeyCode::Enter | KeyCode::Char(' ') => {
+            if app.label_filter_selected == 0 {
+                // Clear filter
+                app.set_label_filter(None);
+            } else if let Some(label) = labels.get(app.label_filter_selected - 1) {
+                app.set_label_filter(Some(label));
+            }
+            app.close_label_filter_popup();
+        }
+        _ => {}
+    }
+}
+
+fn handle_label_edit_popup(app: &mut App, key: KeyEvent, db: &Database) {
+    let total = app.label_edit_labels.len() + 1; // +1 for input field
+
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.close_label_edit_popup();
+        }
+        KeyCode::Up | KeyCode::Char('k') if app.label_edit_selected > 0 => {
+            app.label_edit_selected -= 1;
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if app.label_edit_selected < total - 1 {
+                app.label_edit_selected += 1;
+            }
+        }
+        KeyCode::Tab => {
+            // Cycle through items
+            app.label_edit_selected = (app.label_edit_selected + 1) % total.max(1);
+        }
+        KeyCode::BackTab => {
+            // Cycle backwards
+            if app.label_edit_selected > 0 {
+                app.label_edit_selected -= 1;
+            } else {
+                app.label_edit_selected = total.saturating_sub(1);
+            }
+        }
+        KeyCode::Enter => {
+            if app.label_edit_selected == 0 {
+                // Add the label from input
+                app.label_edit_add(db);
+            }
+        }
+        KeyCode::Char('d') | KeyCode::Delete => {
+            // Delete selected label
+            if app.label_edit_selected > 0 {
+                app.label_edit_remove(db);
+            }
+        }
+        KeyCode::Backspace => {
+            if app.label_edit_selected == 0 {
+                app.label_edit_input.pop();
+            } else {
+                // Also delete label when backspace on a label
+                app.label_edit_remove(db);
+            }
+        }
+        KeyCode::Char(c) => {
+            if app.label_edit_selected == 0 {
+                // Only alphanumeric and hyphen allowed
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    app.label_edit_input.push(c);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
     match key.code {
         // Quit
@@ -398,6 +498,12 @@ fn handle_normal_mode(app: &mut App, key: KeyEvent, db: &Database) {
 
         // Toggle favorites-only filter
         KeyCode::Char('F') => app.toggle_favorites_filter(),
+
+        // Label filter popup
+        KeyCode::Char('l') if app.tab != Tab::Discover => app.toggle_label_filter_popup(),
+
+        // Label edit popup (for editing labels on selected tool)
+        KeyCode::Char('L') if app.tab != Tab::Discover => app.open_label_edit_popup(),
 
         // Command palette (vim-style)
         KeyCode::Char(':') => app.enter_command(),

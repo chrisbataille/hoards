@@ -172,6 +172,17 @@ hoards bundle remove <name> <tools...>    # Remove tools
 hoards bundle delete <name>               # Delete bundle
 ```
 
+### Labels
+
+```bash
+hoards label add <tool> <labels...>    # Add labels to a tool
+hoards label remove <tool> <labels...> # Remove labels
+hoards label list [tool]               # List labels (all or for tool)
+hoards label clear <tool>              # Remove all labels from tool
+hoards label auto [tool]               # Auto-label from metadata + AI
+hoards label auto --dry-run            # Preview auto-labeling
+```
+
 ### AI Features
 
 ```bash

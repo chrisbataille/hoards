@@ -136,7 +136,11 @@ fn build_normal_mode_footer(app: &App, theme: &Theme) -> Vec<Span<'static>> {
             format!("{} selected", app.selection_count()),
             Style::default().fg(theme.blue),
         ));
-    } else if !app.search_query.is_empty() || app.source_filter.is_some() || app.favorites_only {
+    } else if !app.search_query.is_empty()
+        || app.source_filter.is_some()
+        || app.label_filter.is_some()
+        || app.favorites_only
+    {
         spans.extend(build_filter_status(app, theme));
     }
 
@@ -215,7 +219,8 @@ fn build_filter_status(app: &App, theme: &Theme) -> Vec<Span<'static>> {
 
     if app.favorites_only {
         spans.push(Span::styled("★", Style::default().fg(theme.yellow)));
-        if app.source_filter.is_some() || !app.search_query.is_empty() {
+        if app.source_filter.is_some() || app.label_filter.is_some() || !app.search_query.is_empty()
+        {
             spans.push(Span::styled(" ", Style::default()));
         }
     }
@@ -225,6 +230,13 @@ fn build_filter_status(app: &App, theme: &Theme) -> Vec<Span<'static>> {
             source.clone(),
             Style::default().fg(theme.text),
         ));
+        if app.label_filter.is_some() || !app.search_query.is_empty() {
+            spans.push(Span::styled(" ", Style::default()));
+        }
+    }
+    if let Some(ref label) = app.label_filter {
+        spans.push(Span::styled("label:", Style::default().fg(theme.teal)));
+        spans.push(Span::styled(label.clone(), Style::default().fg(theme.text)));
         if !app.search_query.is_empty() {
             spans.push(Span::styled(" ", Style::default()));
         }

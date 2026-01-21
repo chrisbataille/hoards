@@ -663,3 +663,201 @@ pub fn render_confirmation_dialog(frame: &mut Frame, app: &App, theme: &Theme, a
     frame.render_widget(Clear, popup_area);
     frame.render_widget(popup, popup_area);
 }
+
+/// Render label filter popup
+pub fn render_label_filter_popup(
+    frame: &mut Frame,
+    app: &App,
+    db: &Database,
+    theme: &Theme,
+    area: Rect,
+) {
+    let popup_area = centered_rect(40, 50, area);
+
+    // Get all labels with counts
+    let label_counts = db.get_label_counts().unwrap_or_default();
+
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Select a label to filter by:",
+            Style::default().fg(theme.text),
+        )),
+        Line::from(""),
+    ];
+
+    // Add "Clear filter" option at the top
+    let clear_style = if app.label_filter_selected == 0 {
+        Style::default().fg(theme.green).bold()
+    } else {
+        Style::default().fg(theme.subtext0)
+    };
+    let clear_prefix = if app.label_filter_selected == 0 {
+        "▶ "
+    } else {
+        "  "
+    };
+    let clear_suffix = if app.label_filter.is_some() {
+        " ✓"
+    } else {
+        ""
+    };
+    lines.push(Line::from(vec![
+        Span::styled(clear_prefix, clear_style),
+        Span::styled(format!("(Clear filter){}", clear_suffix), clear_style),
+    ]));
+
+    // Add labels
+    for (i, (label, count)) in label_counts.iter().enumerate() {
+        let is_selected = app.label_filter_selected == i + 1;
+        let is_active = app.label_filter.as_ref() == Some(label);
+
+        let style = if is_selected {
+            Style::default().fg(theme.green).bold()
+        } else if is_active {
+            Style::default().fg(theme.yellow)
+        } else {
+            Style::default().fg(theme.subtext0)
+        };
+
+        let prefix = if is_selected { "▶ " } else { "  " };
+        let suffix = if is_active { " ✓" } else { "" };
+
+        lines.push(Line::from(vec![
+            Span::styled(prefix, style),
+            Span::styled(format!("{} ({}){}", label, count, suffix), style),
+        ]));
+    }
+
+    // Add hint
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("j/k", Style::default().fg(theme.blue).bold()),
+        Span::styled(" navigate  ", Style::default().fg(theme.subtext0)),
+        Span::styled("Enter", Style::default().fg(theme.green).bold()),
+        Span::styled(" select  ", Style::default().fg(theme.subtext0)),
+        Span::styled("Esc", Style::default().fg(theme.yellow).bold()),
+        Span::styled(" close", Style::default().fg(theme.subtext0)),
+    ]));
+
+    let content = Text::from(lines);
+
+    let popup = Paragraph::new(content)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.blue))
+                .title(Span::styled(
+                    " Label Filter ",
+                    Style::default().fg(theme.blue).bold(),
+                ))
+                .style(Style::default().bg(theme.base)),
+        )
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(popup, popup_area);
+}
+
+/// Render label edit popup
+pub fn render_label_edit_popup(frame: &mut Frame, app: &App, theme: &Theme, area: Rect) {
+    let popup_area = centered_rect(50, 60, area);
+
+    let tool_name = app.label_edit_tool.as_deref().unwrap_or("Unknown");
+
+    let mut lines = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Edit labels for: {}", tool_name),
+            Style::default().fg(theme.text),
+        )),
+        Line::from(""),
+    ];
+
+    // Input field for new label
+    let input_selected = app.label_edit_selected == 0;
+    let input_style = if input_selected {
+        Style::default().fg(theme.green).bold()
+    } else {
+        Style::default().fg(theme.subtext0)
+    };
+    let input_prefix = if input_selected { "▶ " } else { "  " };
+    let cursor = if input_selected { "▌" } else { "" };
+
+    lines.push(Line::from(vec![
+        Span::styled(input_prefix, input_style),
+        Span::styled("Add: ", input_style),
+        Span::styled(
+            format!("{}{}", app.label_edit_input, cursor),
+            Style::default().fg(theme.text).bg(if input_selected {
+                theme.surface0
+            } else {
+                theme.base
+            }),
+        ),
+    ]));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Current labels:",
+        Style::default().fg(theme.subtext0),
+    )));
+
+    // Show existing labels
+    if app.label_edit_labels.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  (no labels)",
+            Style::default().fg(theme.subtext0).italic(),
+        )));
+    } else {
+        for (i, label) in app.label_edit_labels.iter().enumerate() {
+            let is_selected = app.label_edit_selected == i + 1;
+            let style = if is_selected {
+                Style::default().fg(theme.yellow).bold()
+            } else {
+                Style::default().fg(theme.teal)
+            };
+            let prefix = if is_selected { "▶ " } else { "  " };
+            let suffix = if is_selected { "  [d] to delete" } else { "" };
+
+            lines.push(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(label.clone(), style),
+                Span::styled(suffix, Style::default().fg(theme.red)),
+            ]));
+        }
+    }
+
+    // Add hints
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("Tab", Style::default().fg(theme.blue).bold()),
+        Span::styled(" navigate  ", Style::default().fg(theme.subtext0)),
+        Span::styled("Enter", Style::default().fg(theme.green).bold()),
+        Span::styled(" add  ", Style::default().fg(theme.subtext0)),
+        Span::styled("d", Style::default().fg(theme.red).bold()),
+        Span::styled(" delete  ", Style::default().fg(theme.subtext0)),
+        Span::styled("Esc", Style::default().fg(theme.yellow).bold()),
+        Span::styled(" close", Style::default().fg(theme.subtext0)),
+    ]));
+
+    let content = Text::from(lines);
+
+    let popup = Paragraph::new(content)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.mauve))
+                .title(Span::styled(
+                    " Edit Labels ",
+                    Style::default().fg(theme.mauve).bold(),
+                ))
+                .style(Style::default().bg(theme.base)),
+        )
+        .alignment(Alignment::Left)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(Clear, popup_area);
+    frame.render_widget(popup, popup_area);
+}

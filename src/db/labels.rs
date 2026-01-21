@@ -94,6 +94,15 @@ impl Database {
         tool_iter.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// Remove a specific label from a tool
+    pub fn remove_label(&self, tool_name: &str, label: &str) -> Result<bool> {
+        let rows = self.conn.execute(
+            "DELETE FROM tool_labels WHERE tool_id = (SELECT id FROM tools WHERE name = ?1) AND label = ?2",
+            rusqlite::params![tool_name, label.to_lowercase()],
+        )?;
+        Ok(rows > 0)
+    }
+
     /// Clear labels for a tool
     pub fn clear_labels(&self, tool_name: &str) -> Result<bool> {
         let rows = self.conn.execute(

@@ -76,7 +76,15 @@ pub struct App {
     pub input_mode: InputMode,
     pub search_query: String,
     pub source_filter: Option<String>, // Filter by source (cargo, apt, etc.)
+    pub label_filter: Option<String>,  // Filter by label
     pub favorites_only: bool,          // Filter to show only favorites
+    pub show_label_filter_popup: bool, // Show label filter selection popup
+    pub label_filter_selected: usize,  // Selected index in label filter popup
+    pub show_label_edit_popup: bool,   // Show label edit popup
+    pub label_edit_tool: Option<String>, // Tool being edited in label popup
+    pub label_edit_input: String,      // Input field for new label
+    pub label_edit_selected: usize, // Selected index in label edit popup (0 = input, 1+ = existing labels)
+    pub label_edit_labels: Vec<String>, // Current labels for the tool being edited
 
     // Tool list state
     pub all_tools: Vec<Tool>, // All tools for current tab (unfiltered)
@@ -203,7 +211,15 @@ impl App {
             input_mode: InputMode::Normal,
             search_query: String::new(),
             source_filter: None,
+            label_filter: None,
             favorites_only: false,
+            show_label_filter_popup: false,
+            label_filter_selected: 0,
+            show_label_edit_popup: false,
+            label_edit_tool: None,
+            label_edit_input: String::new(),
+            label_edit_selected: 0,
+            label_edit_labels: Vec::new(),
             all_tools,
             tools,
             selected_index: 0,
@@ -368,7 +384,7 @@ impl App {
 
     /// Apply current search filter and sort to tools
     pub fn apply_filter_and_sort(&mut self) {
-        // Start with all tools, optionally filtered by source and favorites
+        // Start with all tools, optionally filtered by source, label, and favorites
         let source_filtered: Vec<&Tool> = self
             .all_tools
             .iter()
@@ -378,6 +394,13 @@ impl App {
                     && format!("{:?}", t.source).to_lowercase() != *source
                 {
                     return false;
+                }
+                // Filter by label if set
+                if let Some(ref label) = self.label_filter {
+                    let tool_labels = self.cache.labels_cache.get(&t.name);
+                    if !tool_labels.is_some_and(|labels: &Vec<String>| labels.contains(label)) {
+                        return false;
+                    }
                 }
                 // Filter by favorites if enabled
                 if self.favorites_only && !t.is_favorite {

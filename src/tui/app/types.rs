@@ -878,4 +878,5 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("create-theme", "create custom theme file"),
     ("new-theme", "create custom theme file"),
     ("edit-theme", "show custom theme file path"),
+    ("label", "label auto - auto-label selected tool(s)"),
 ];
