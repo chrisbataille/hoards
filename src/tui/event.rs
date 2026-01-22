@@ -347,6 +347,10 @@ fn handle_label_filter_popup(app: &mut App, key: KeyEvent, db: &Database) {
                 app.toggle_label_filter(label);
             }
         }
+        KeyCode::Delete => {
+            // Delete clears all filters
+            app.clear_label_filter();
+        }
         KeyCode::Tab => {
             // Tab cycles through items
             app.label_filter_selected = (app.label_filter_selected + 1) % total.max(1);
@@ -379,10 +383,16 @@ fn handle_label_filter_popup(app: &mut App, key: KeyEvent, db: &Database) {
             }
         }
         KeyCode::Backspace => {
-            app.label_filter_search.pop();
-            // Reset selection to first label (not "clear") when search changes
-            app.label_filter_selected = if filtered_labels.is_empty() { 0 } else { 1 };
-            app.label_filter_scroll = 0;
+            if app.label_filter_search.is_empty() {
+                // Backspace on empty search clears all filters
+                app.clear_label_filter();
+            } else {
+                app.label_filter_search.pop();
+                // Reset selection to first label (not "clear") when search changes
+                let new_labels = get_filtered_label_list(app, db);
+                app.label_filter_selected = if new_labels.is_empty() { 0 } else { 1 };
+                app.label_filter_scroll = 0;
+            }
         }
         KeyCode::PageUp => {
             app.label_filter_selected = app.label_filter_selected.saturating_sub(visible_height);
@@ -408,6 +418,11 @@ fn handle_label_filter_popup(app: &mut App, key: KeyEvent, db: &Database) {
             // Ctrl+S to toggle sort
             if c == 's' && key.modifiers.contains(KeyModifiers::CONTROL) {
                 app.label_filter_sort = app.label_filter_sort.toggle();
+                return;
+            }
+            // 'c' clears all filters (when not typing in search)
+            if c == 'c' && app.label_filter_search.is_empty() {
+                app.clear_label_filter();
                 return;
             }
             // Add character to search

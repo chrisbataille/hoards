@@ -902,9 +902,10 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("create-theme", "create custom theme file"),
     ("new-theme", "create custom theme file"),
     ("edit-theme", "show custom theme file path"),
-    ("label", "label [auto|filter|edit] - manage labels"),
+    ("label", "label [auto|filter|edit|clear] - manage labels"),
     ("label auto", "auto-label selected tool(s)"),
     ("label filter", "open label filter popup"),
     ("label edit", "edit labels on selected tool"),
+    ("label clear", "clear all label filters"),
     ("labels", "open label filter popup"),
 ];

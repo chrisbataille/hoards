@@ -218,8 +218,11 @@ impl App {
                 } else if parts.get(1) == Some(&"edit") {
                     self.exit_command();
                     self.open_label_edit_popup();
+                } else if parts.get(1) == Some(&"clear") {
+                    self.clear_label_filter();
+                    self.exit_command();
                 } else {
-                    self.set_status("Usage: label [auto|filter|edit]".to_string(), true);
+                    self.set_status("Usage: label [auto|filter|edit|clear]".to_string(), true);
                     self.exit_command();
                 }
             }

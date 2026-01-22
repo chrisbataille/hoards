@@ -815,17 +815,17 @@ pub fn render_label_filter_popup(
         )));
     }
 
-    // Add hint
+    // Add hints
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("↑↓", Style::default().fg(theme.blue).bold()),
         Span::styled(" nav ", Style::default().fg(theme.subtext0)),
         Span::styled("Space", Style::default().fg(theme.green).bold()),
         Span::styled(" toggle ", Style::default().fg(theme.subtext0)),
+        Span::styled("Del/c", Style::default().fg(theme.red).bold()),
+        Span::styled(" clear all ", Style::default().fg(theme.subtext0)),
         Span::styled("Enter", Style::default().fg(theme.yellow).bold()),
-        Span::styled(" done ", Style::default().fg(theme.subtext0)),
-        Span::styled("Esc", Style::default().fg(theme.red).bold()),
-        Span::styled(" close", Style::default().fg(theme.subtext0)),
+        Span::styled(" done", Style::default().fg(theme.subtext0)),
     ]));
 
     let content = Text::from(lines);
