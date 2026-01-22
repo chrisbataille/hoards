@@ -376,7 +376,9 @@ impl App {
     pub fn toggle_label_filter_popup(&mut self) {
         self.show_label_filter_popup = !self.show_label_filter_popup;
         if self.show_label_filter_popup {
-            self.label_filter_selected = 0;
+            // Start at first label (index 1), not "Clear filter" (index 0)
+            // If there are no labels, the render/event will handle it
+            self.label_filter_selected = 1;
             self.label_filter_scroll = 0;
             self.label_filter_search.clear();
         }

@@ -335,24 +335,27 @@ fn handle_label_filter_popup(app: &mut App, key: KeyEvent, db: &Database) {
     let visible_height = 10_usize;
 
     match key.code {
-        KeyCode::Esc => {
+        KeyCode::Esc | KeyCode::Enter => {
+            // Just close the popup (Enter confirms current selection)
             app.close_label_filter_popup();
         }
-        KeyCode::Enter => {
-            // Toggle selection on current item, then close
+        KeyCode::Char(' ') => {
+            // Space toggles selection (like a checkbox)
             if app.label_filter_selected == 0 {
                 app.clear_label_filter();
             } else if let Some((label, _)) = filtered_labels.get(app.label_filter_selected - 1) {
                 app.toggle_label_filter(label);
             }
-            app.close_label_filter_popup();
         }
         KeyCode::Tab => {
-            // Toggle selection without closing (for multi-select)
+            // Tab cycles through items
+            app.label_filter_selected = (app.label_filter_selected + 1) % total.max(1);
+            if app.label_filter_selected >= app.label_filter_scroll + visible_height {
+                app.label_filter_scroll =
+                    app.label_filter_selected.saturating_sub(visible_height - 1);
+            }
             if app.label_filter_selected == 0 {
-                app.clear_label_filter();
-            } else if let Some((label, _)) = filtered_labels.get(app.label_filter_selected - 1) {
-                app.toggle_label_filter(label);
+                app.label_filter_scroll = 0;
             }
         }
         KeyCode::Up => {
@@ -377,8 +380,8 @@ fn handle_label_filter_popup(app: &mut App, key: KeyEvent, db: &Database) {
         }
         KeyCode::Backspace => {
             app.label_filter_search.pop();
-            // Reset selection when search changes
-            app.label_filter_selected = 0;
+            // Reset selection to first label (not "clear") when search changes
+            app.label_filter_selected = if filtered_labels.is_empty() { 0 } else { 1 };
             app.label_filter_scroll = 0;
         }
         KeyCode::PageUp => {
@@ -409,8 +412,9 @@ fn handle_label_filter_popup(app: &mut App, key: KeyEvent, db: &Database) {
             }
             // Add character to search
             app.label_filter_search.push(c);
-            // Reset selection when search changes
-            app.label_filter_selected = 0;
+            // Reset selection to first label (not "clear") when search changes
+            let new_labels = get_filtered_label_list(app, db);
+            app.label_filter_selected = if new_labels.is_empty() { 0 } else { 1 };
             app.label_filter_scroll = 0;
         }
         _ => {}

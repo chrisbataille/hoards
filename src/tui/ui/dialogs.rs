@@ -820,10 +820,10 @@ pub fn render_label_filter_popup(
     lines.push(Line::from(vec![
         Span::styled("↑↓", Style::default().fg(theme.blue).bold()),
         Span::styled(" nav ", Style::default().fg(theme.subtext0)),
-        Span::styled("Tab", Style::default().fg(theme.green).bold()),
+        Span::styled("Space", Style::default().fg(theme.green).bold()),
         Span::styled(" toggle ", Style::default().fg(theme.subtext0)),
         Span::styled("Enter", Style::default().fg(theme.yellow).bold()),
-        Span::styled(" select&close ", Style::default().fg(theme.subtext0)),
+        Span::styled(" done ", Style::default().fg(theme.subtext0)),
         Span::styled("Esc", Style::default().fg(theme.red).bold()),
         Span::styled(" close", Style::default().fg(theme.subtext0)),
     ]));
