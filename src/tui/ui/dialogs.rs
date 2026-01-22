@@ -890,7 +890,7 @@ fn get_popup_label_list(app: &App, db: &Database) -> Vec<(String, usize)> {
             .filter(|(label, _)| {
                 search_terms
                     .iter()
-                    .all(|term| fuzzy_match(label, term).is_some())
+                    .all(|term| fuzzy_match(term, label).is_some())
             })
             .collect()
     };
