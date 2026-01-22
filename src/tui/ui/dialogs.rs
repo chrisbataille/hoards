@@ -849,51 +849,65 @@ pub fn render_label_filter_popup(
 }
 
 /// Get filtered and sorted label list for the popup
-fn get_popup_label_list(app: &App, db: &Database) -> Vec<(String, usize)> {
+///
+/// Search behavior:
+/// - "alt" = find tools with a label fuzzy-matching "alt"
+/// - "a l t" = find tools with (label matching "a") AND (label matching "l") AND (label matching "t")
+///   where each term can match a DIFFERENT label
+fn get_popup_label_list(app: &App, _db: &Database) -> Vec<(String, usize)> {
     use crate::tui::app::{LabelFilterSort, fuzzy_match};
 
-    // Get labels with counts, filtered by current selection
-    let label_counts = if app.label_filter.is_empty() {
-        db.get_label_counts().unwrap_or_default()
-    } else {
-        // Compute co-occurring labels from tools matching current filter
-        let matching_tools: Vec<_> = app
-            .all_tools
-            .iter()
-            .filter(|t| {
-                if let Some(labels) = app.cache.labels_cache.get(&t.name) {
-                    app.label_filter.iter().all(|l| labels.contains(l))
-                } else {
-                    false
-                }
-            })
-            .collect();
+    // Helper: check if a tool's labels match the search criteria
+    let tool_matches_search = |tool_labels: &[String]| -> bool {
+        if app.label_filter_search.is_empty() {
+            return true;
+        }
 
-        let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        for tool in &matching_tools {
-            if let Some(labels) = app.cache.labels_cache.get(&tool.name) {
-                for label in labels {
-                    *counts.entry(label.clone()).or_insert(0) += 1;
-                }
+        let search_terms: Vec<&str> = app.label_filter_search.split_whitespace().collect();
+
+        if search_terms.len() == 1 {
+            // Single term: must fuzzy-match at least one label
+            let term = search_terms[0];
+            tool_labels.iter().any(|l| fuzzy_match(term, l).is_some())
+        } else {
+            // Multiple terms: each term must match at least one label (can be different labels)
+            search_terms
+                .iter()
+                .all(|term| tool_labels.iter().any(|l| fuzzy_match(term, l).is_some()))
+        }
+    };
+
+    // Get tools that match:
+    // 1. Currently selected labels (if any)
+    // 2. Search criteria (if any)
+    let matching_tools: Vec<_> = app
+        .all_tools
+        .iter()
+        .filter(|t| {
+            if let Some(labels) = app.cache.labels_cache.get(&t.name) {
+                // Must match all selected labels
+                let matches_selection = app.label_filter.is_empty()
+                    || app.label_filter.iter().all(|l| labels.contains(l));
+                // Must match search criteria
+                let matches_search = tool_matches_search(labels);
+                matches_selection && matches_search
+            } else {
+                false
+            }
+        })
+        .collect();
+
+    // Count labels across matching tools
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for tool in &matching_tools {
+        if let Some(labels) = app.cache.labels_cache.get(&tool.name) {
+            for label in labels {
+                *counts.entry(label.clone()).or_insert(0) += 1;
             }
         }
-        counts.into_iter().collect()
-    };
+    }
 
-    // Apply fuzzy search filter (space-separated terms must all match)
-    let mut filtered: Vec<(String, usize)> = if app.label_filter_search.is_empty() {
-        label_counts
-    } else {
-        let search_terms: Vec<&str> = app.label_filter_search.split_whitespace().collect();
-        label_counts
-            .into_iter()
-            .filter(|(label, _)| {
-                search_terms
-                    .iter()
-                    .all(|term| fuzzy_match(term, label).is_some())
-            })
-            .collect()
-    };
+    let mut filtered: Vec<(String, usize)> = counts.into_iter().collect();
 
     // Sort
     match app.label_filter_sort {
