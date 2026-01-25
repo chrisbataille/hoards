@@ -475,7 +475,19 @@ impl App {
                     });
                 }
                 SortBy::Recent => {
-                    filtered.sort_by(|a, b| b.0.updated_at.cmp(&a.0.updated_at));
+                    let usage = &self.cache.usage_data;
+                    filtered.sort_by(|a, b| {
+                        let a_last = usage.get(&a.0.name).and_then(|u| u.last_used.as_ref());
+                        let b_last = usage.get(&b.0.name).and_then(|u| u.last_used.as_ref());
+                        // Sort by last_used descending (most recent first)
+                        // Tools with no usage go to the end
+                        match (a_last, b_last) {
+                            (Some(a), Some(b)) => b.cmp(a), // Descending: most recent first
+                            (Some(_), None) => std::cmp::Ordering::Less, // a has usage, comes first
+                            (None, Some(_)) => std::cmp::Ordering::Greater, // b has usage, comes first
+                            (None, None) => a.0.name.cmp(&b.0.name),        // Alphabetical fallback
+                        }
+                    });
                 }
             }
         }
