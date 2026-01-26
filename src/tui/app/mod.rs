@@ -1814,7 +1814,13 @@ Keep your response under 300 words and be direct.
                                                 output.status.code().unwrap_or(-1)
                                             )
                                         } else if filtered_stderr.len() > 500 {
-                                            format!("{}...", &filtered_stderr[..500])
+                                            // Find safe UTF-8 boundary near 500 chars
+                                            let boundary = filtered_stderr
+                                                .char_indices()
+                                                .take_while(|(i, _)| *i < 500)
+                                                .last()
+                                                .map_or(0, |(i, c)| i + c.len_utf8());
+                                            format!("{}...", &filtered_stderr[..boundary])
                                         } else {
                                             filtered_stderr
                                         };

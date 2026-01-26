@@ -121,7 +121,13 @@ pub fn suggest_bundle_prompt(
 pub fn extract_prompt(readme: &str) -> String {
     // Truncate README if too long (keep first ~8000 chars to leave room for prompt)
     let readme_truncated = if readme.len() > 8000 {
-        format!("{}...\n[README truncated]", &readme[..8000])
+        // Find safe UTF-8 boundary near 8000 chars
+        let boundary = readme
+            .char_indices()
+            .take_while(|(i, _)| *i < 8000)
+            .last()
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        format!("{}...\n[README truncated]", &readme[..boundary])
     } else {
         readme.to_string()
     };
@@ -136,7 +142,13 @@ pub fn cheatsheet_prompt(tool_name: &str, help_output: &str) -> String {
 
     // Truncate help output if too long (keep first 4000 chars)
     let truncated_help = if help_output.len() > 4000 {
-        format!("{}...\n[truncated]", &help_output[..4000])
+        // Find safe UTF-8 boundary near 4000 chars
+        let boundary = help_output
+            .char_indices()
+            .take_while(|(i, _)| *i < 4000)
+            .last()
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        format!("{}...\n[truncated]", &help_output[..boundary])
     } else {
         help_output.to_string()
     };
@@ -164,7 +176,13 @@ pub fn bundle_cheatsheet_prompt(
     for (name, help) in tools_help {
         combined_help.push_str(&format!("\n=== {} ===\n", name));
         if help.len() > 2000 {
-            combined_help.push_str(&format!("{}...\n[truncated]\n", &help[..2000]));
+            // Find safe UTF-8 boundary near 2000 chars
+            let boundary = help
+                .char_indices()
+                .take_while(|(i, _)| *i < 2000)
+                .last()
+                .map_or(0, |(i, c)| i + c.len_utf8());
+            combined_help.push_str(&format!("{}...\n[truncated]\n", &help[..boundary]));
         } else {
             combined_help.push_str(help);
         }
@@ -172,7 +190,13 @@ pub fn bundle_cheatsheet_prompt(
 
     // Overall truncation if still too long
     let final_help = if combined_help.len() > 12000 {
-        format!("{}...\n[truncated]", &combined_help[..12000])
+        // Find safe UTF-8 boundary near 12000 chars
+        let boundary = combined_help
+            .char_indices()
+            .take_while(|(i, _)| *i < 12000)
+            .last()
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        format!("{}...\n[truncated]", &combined_help[..boundary])
     } else {
         combined_help
     };

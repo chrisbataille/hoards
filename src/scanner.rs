@@ -150,8 +150,11 @@ pub fn fetch_help_description(binary: &str) -> Option<String> {
         // Take first sentence or first 80 chars
         let desc = if let Some(pos) = line.find(". ") {
             &line[..pos]
-        } else if line.len() > 80 {
-            &line[..80]
+        } else if line.chars().count() > 80 {
+            // Find byte index at 80th character boundary (safe for UTF-8)
+            line.char_indices()
+                .nth(80)
+                .map_or(line, |(idx, _)| &line[..idx])
         } else {
             line
         };
