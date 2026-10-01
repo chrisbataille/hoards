@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use colored::Colorize;
+use std::cmp::Reverse;
 
 use crate::db::Database;
 use crate::scanner::KNOWN_TOOLS;
@@ -78,7 +79,7 @@ pub fn cmd_overview(db: &Database) -> Result<()> {
             tools_with_usage.push((tool.name.clone(), usage.use_count));
         }
     }
-    tools_with_usage.sort_by(|a, b| b.1.cmp(&a.1));
+    tools_with_usage.sort_by_key(|a| Reverse(a.1));
 
     if tools_with_usage.is_empty() {
         println!("   (no usage data - run 'hoards sync --usage')");

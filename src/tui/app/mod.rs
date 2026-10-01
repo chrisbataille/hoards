@@ -22,6 +22,7 @@ mod tests;
 mod traits;
 mod types;
 
+use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
@@ -461,7 +462,7 @@ impl App {
         // Sort by fuzzy score when searching, otherwise by user preference
         if !self.search_query.is_empty() {
             // Sort by score descending (best matches first)
-            filtered.sort_by(|a, b| b.1.cmp(&a.1));
+            filtered.sort_by_key(|a| Reverse(a.1));
         } else {
             // Sort by user preference
             match self.sort_by {

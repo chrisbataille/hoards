@@ -1,5 +1,6 @@
 //! Discovery commands: suggest, similar, trending
 
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 use anyhow::Result;
@@ -117,7 +118,7 @@ pub fn cmd_trending(db: &Database, category: Option<String>, limit: usize) -> Re
     }
 
     // Sort by stars descending
-    tools_with_stars.sort_by(|a, b| b.1.cmp(&a.1));
+    tools_with_stars.sort_by_key(|a| Reverse(a.1));
 
     if tools_with_stars.is_empty() {
         println!("No tools with GitHub star data found.");

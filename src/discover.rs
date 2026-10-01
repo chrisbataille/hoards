@@ -3,6 +3,7 @@
 //! This module provides trait-based search sources for discovering tools
 //! from various package registries, GitHub, and AI recommendations.
 
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::process::Command;
 
@@ -308,14 +309,11 @@ fn crate_matches_github_repo(name: &str, github_url: &str) -> Option<bool> {
         return None;
     };
 
-    // Check if the crate's repository matches the GitHub URL
-    if let Some(repo_url) = data["crate"]["repository"].as_str() {
-        if !github_urls_match(repo_url, github_url) {
-            // Repository doesn't match - this is a different project
-            return None;
-        }
-    } else {
-        // No repository URL in crate metadata - can't verify, skip
+    // Check if the crate's repository matches the GitHub URL. No repository
+    // URL in the crate metadata means it can't be verified: skip it.
+    let repo_url = data["crate"]["repository"].as_str()?;
+    if !github_urls_match(repo_url, github_url) {
+        // Repository doesn't match - this is a different project
         return None;
     }
 
@@ -1190,7 +1188,7 @@ pub fn deduplicate_results(mut results: Vec<DiscoverResult>) -> Vec<DiscoverResu
         .map(|group| {
             // Sort by stars (highest first), then pick primary
             let mut sorted: Vec<_> = group.into_iter().collect();
-            sorted.sort_by(|a, b| b.stars.cmp(&a.stars));
+            sorted.sort_by_key(|a| Reverse(a.stars));
 
             let mut primary = sorted.remove(0);
 

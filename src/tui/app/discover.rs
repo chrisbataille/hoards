@@ -71,8 +71,7 @@ impl App {
                     });
             }
             DiscoverSortBy::Name => {
-                self.discover_results
-                    .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                self.discover_results.sort_by_key(|a| a.name.to_lowercase());
             }
             DiscoverSortBy::Source => {
                 self.discover_results.sort_by(|a, b| {
@@ -362,10 +361,8 @@ impl App {
                             source_names.push("GitHub".to_string());
                         }
                     }
-                    "github" => {
-                        if self.gh_available {
-                            source_names.push("GitHub".to_string());
-                        }
+                    "github" if self.gh_available => {
+                        source_names.push("GitHub".to_string());
                     }
                     _ => {} // Skip unknown sources
                 }

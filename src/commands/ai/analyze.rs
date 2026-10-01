@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use colored::Colorize;
+use std::cmp::Reverse;
 
 use crate::Database;
 
@@ -153,7 +154,7 @@ pub fn cmd_ai_analyze(db: &Database, json_output: bool, no_ai: bool, min_uses: i
     }
 
     // Sort tips by usage count (most used first)
-    tips.sort_by(|a, b| b.traditional_uses.cmp(&a.traditional_uses));
+    tips.sort_by_key(|a| Reverse(a.traditional_uses));
 
     // 3. Get unused installed tools (high-value ones)
     let unused_tools = db.get_unused_tools()?;
@@ -171,7 +172,7 @@ pub fn cmd_ai_analyze(db: &Database, json_output: bool, no_ai: bool, min_uses: i
     }
 
     // Sort by stars (most popular first) to highlight high-value unused tools
-    underutilized.sort_by(|a, b| b.stars.unwrap_or(0).cmp(&a.stars.unwrap_or(0)));
+    underutilized.sort_by_key(|a| Reverse(a.stars.unwrap_or(0)));
     underutilized.truncate(5);
 
     // 4. Optional AI insights

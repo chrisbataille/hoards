@@ -255,11 +255,9 @@ pub fn render_loading_overlay(frame: &mut Frame, app: &App, theme: &Theme, area:
 
     // Build progress bar
     let bar_width = 30;
-    let filled = if progress.total_steps > 0 {
-        (progress.current_step * bar_width) / progress.total_steps
-    } else {
-        0
-    };
+    let filled = (progress.current_step * bar_width)
+        .checked_div(progress.total_steps)
+        .unwrap_or(0);
     let empty = bar_width - filled;
     let progress_bar = format!(
         "[{}{}] {}/{}",
