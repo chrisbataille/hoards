@@ -4,6 +4,7 @@
 
 use anyhow::Result;
 use colored::Colorize;
+use std::cmp::Reverse;
 
 use crate::Database;
 
@@ -107,7 +108,7 @@ pub fn cmd_usage_scan(db: &Database, dry_run: bool, reset: bool) -> Result<()> {
     }
 
     // Sort by count descending
-    tool_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    tool_counts.sort_by_key(|a| Reverse(a.1));
 
     if tool_counts.is_empty() {
         println!("{} No matching tools found in history", "!".yellow());
@@ -336,7 +337,7 @@ pub fn cmd_recommend(db: &Database, count: usize) -> Result<()> {
 
     // Sort categories by usage
     let mut cats: Vec<_> = category_scores.into_iter().collect();
-    cats.sort_by(|a, b| b.1.cmp(&a.1));
+    cats.sort_by_key(|a| Reverse(a.1));
 
     if cats.is_empty() {
         println!("{} Not enough data for recommendations", "!".yellow());

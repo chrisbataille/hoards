@@ -572,15 +572,14 @@ fn handle_label_edit_popup(app: &mut App, key: KeyEvent, db: &Database) {
                 }
             }
         }
-        KeyCode::Char(c) => {
+        KeyCode::Char(c)
             // Always type into input (focus returns to input for typing)
-            if c.is_alphanumeric() || c == '-' || c == '_' {
+            if (c.is_alphanumeric() || c == '-' || c == '_') => {
                 app.label_edit_input.push(c);
                 app.update_label_suggestions(db);
                 // Reset selection to input when typing
                 app.label_edit_selected = 0;
             }
-        }
         _ => {}
     }
 }
@@ -853,13 +852,11 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &D
                     }
                 }
             }
-            MouseEventKind::ScrollDown => {
-                if app.label_filter_selected < total.saturating_sub(1) {
-                    app.label_filter_selected += 1;
-                    if app.label_filter_selected >= app.label_filter_scroll + visible_height {
-                        app.label_filter_scroll =
-                            app.label_filter_selected.saturating_sub(visible_height - 1);
-                    }
+            MouseEventKind::ScrollDown if app.label_filter_selected < total.saturating_sub(1) => {
+                app.label_filter_selected += 1;
+                if app.label_filter_selected >= app.label_filter_scroll + visible_height {
+                    app.label_filter_scroll =
+                        app.label_filter_selected.saturating_sub(visible_height - 1);
                 }
             }
             _ => {}
@@ -876,10 +873,8 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &D
                     app.label_edit_selected -= 1;
                 }
             }
-            MouseEventKind::ScrollDown => {
-                if app.label_edit_selected < total.saturating_sub(1) {
-                    app.label_edit_selected += 1;
-                }
+            MouseEventKind::ScrollDown if app.label_edit_selected < total.saturating_sub(1) => {
+                app.label_edit_selected += 1;
             }
             _ => {}
         }
@@ -897,11 +892,9 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent, db: &D
             MouseEventKind::ScrollUp => {
                 app.install_output_scroll = app.install_output_scroll.saturating_sub(3);
             }
-            MouseEventKind::ScrollDown => {
-                if !app.install_output.is_empty() {
-                    let max_scroll = app.install_output.len().saturating_sub(1);
-                    app.install_output_scroll = (app.install_output_scroll + 3).min(max_scroll);
-                }
+            MouseEventKind::ScrollDown if !app.install_output.is_empty() => {
+                let max_scroll = app.install_output.len().saturating_sub(1);
+                app.install_output_scroll = (app.install_output_scroll + 3).min(max_scroll);
             }
             _ => {}
         }

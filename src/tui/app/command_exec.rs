@@ -4,6 +4,7 @@
 //! for theme, sort, and filter commands.
 
 use crate::db::Database;
+use std::cmp::Reverse;
 
 use super::App;
 use super::types::{COMMANDS, SortBy, Tab};
@@ -468,7 +469,7 @@ impl App {
             .collect();
 
         // Sort by score (higher = better match)
-        matches.sort_by(|a, b| b.1.cmp(&a.1));
+        matches.sort_by_key(|a| Reverse(a.1));
 
         // Take top 5 suggestions
         self.label_edit_suggestions = matches.into_iter().take(5).map(|(l, _)| l).collect();
